@@ -1012,6 +1012,19 @@ KÍCH HOẠT khi:  (S1 OR S2 OR S3 OR S4)
 
 > Lưu ý: KHÔNG hardcode ngưỡng tuyệt đối kiểu "recall melanoma < 80%" (phi thực tế trên HAM10000). Mọi điều kiện so sánh **tương đối với baseline/production**.
 
+**Tình trạng hiện thực (đã code & verify):** cả **4 tín hiệu S1–S4 đã được hiện thực**, chia làm 2 cơ chế đúng vai trò:
+
+*Nhóm event-driven (S1–S3)* — trong `backend/app/services/auto_trigger.py`, một background loop chạy trong service `api` (khởi động ở `lifespan`), định kỳ (`auto_check_interval_seconds`) đọc số liệu DB và đánh giá:
+- **S1** — số review tích lũy *kể từ lần retrain trước* ≥ `min_reviewed_images`.
+- **S2** — `drift_rate` hoặc `low_confidence_rate` trên cửa sổ gần nhất vượt ngưỡng (kèm sàn `min_samples`).
+- **S3** — accuracy online (dự đoán model vs nhãn bác sĩ trên các review gần đây) < `perf_min_accuracy` (kèm sàn `perf_min_reviews`).
+
+Guard `cooldown_minutes` AND với kết quả OR của S1–S3. Khi fire, loop gọi Prefect tạo flow run; `trigger_reason` ghi rõ tín hiệu nào (vd `S1+S2+S3`). Xem live (kể cả khi auto tắt) qua `GET /admin/trigger-status` hoặc panel "Tín hiệu trigger" trên trang Admin.
+
+*Tín hiệu định kỳ (S4)* — **lịch Prefect cron thật**, KHÔNG poll trong api. `backend/app/flows/serve.py` đăng ký deployment `retraining/default` với `cron = schedule_cron` (mặc định `0 2 1 * *`) và default parameter `trigger_reason="S4"`. `prefect-server` tự bắn flow run theo lịch, `prefect-worker` chạy. Đổi `schedule_cron` trong config → restart `prefect-worker` để đăng ký lại.
+
+> **Service nào chạy tín hiệu?** *Đánh giá S1–S3* ở **api** (tầng "có nên thử retrain"); *lịch S4* ở **prefect-server** (scheduler); *thực thi retrain* (gate + promote) ở **prefect-worker** (tầng "có đủ tốt để thay"). Tách bạch đúng triết lý mục 18.1.
+
 ## 18.3. Chế độ retrain: smoke (demo) vs artifact (thực tế)
 
 Vì máy local không GPU, retrain đầy đủ rất chậm. Hệ thống hỗ trợ **2 chế độ qua tham số `mode`**:

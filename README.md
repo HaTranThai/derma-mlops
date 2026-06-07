@@ -75,9 +75,14 @@ docker compose up --build
 | POST | `/admin/promote/{version}` | Promote 1 version thủ công |
 | GET / PUT | `/admin/config` | Xem / sửa tham số retrain (gồm `auto_trigger_enabled`) |
 | POST | `/admin/reload-model` | Hot-reload model đang phục vụ (không restart) |
+| GET | `/admin/trigger-status` | Đánh giá live 4 tín hiệu trigger S1–S4 |
 | GET | `/admin/runs` | Lịch sử các lần retrain |
 
-> **Auto-trigger**: khi `auto_trigger_enabled=true` (sửa trong config trang Admin), background loop trong api định kỳ kiểm tra `drift_rate`/`low_confidence_rate` (cửa sổ gần nhất) — vượt ngưỡng + qua cooldown → tự gọi retrain qua Prefect. Đây là retraining **event-driven** (Level 2).
+> **Auto-trigger (4 tín hiệu)** — 4 tín hiệu OR, chạy ở 2 nơi khác nhau:
+> - **S1/S2/S3 (event-driven)** — background loop trong **api** (bật bằng `auto_trigger_enabled`) đánh giá định kỳ: **S1** đủ review mới (`min_reviewed_images`), **S2** drift/confidence thấp (`drift_rate`/`low_confidence_rate`), **S3** hiệu năng online giảm (accuracy dự đoán vs nhãn bác sĩ < `perf_min_accuracy`) — kèm guard `cooldown_minutes`. Tín hiệu bật → gọi retrain qua Prefect.
+> - **S4 (định kỳ)** — **lịch Prefect cron** (`schedule_cron`, mặc định `0 2 1 * *`) do `prefect-server` tự bắn, `prefect-worker` chạy. KHÔNG nằm trong api loop. Đổi lịch trong config → restart `prefect-worker` để đăng ký lại.
+>
+> `trigger_reason` ghi rõ tín hiệu nào kích hoạt (vd `S1+S2+S3`, hoặc `S4` cho run theo lịch). Xem S1–S3 live bằng `/admin/trigger-status` hoặc panel "Tín hiệu trigger" trên trang Admin. Worker luôn thực thi gate+promote. Đây là retraining **event-driven + scheduled** (Level 2).
 
 ## DVC (data/model versioning → MinIO)
 

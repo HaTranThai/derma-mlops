@@ -18,6 +18,7 @@ export default function Admin() {
   const [models, setModels] = useState([])
   const [gate, setGate] = useState(null)
   const [runs, setRuns] = useState([])
+  const [trigger, setTrigger] = useState(null)
   const [config, setConfig] = useState("")
   const [message, setMessage] = useState(null)
   const [error, setError] = useState(null)
@@ -37,11 +38,12 @@ export default function Admin() {
   async function loadAll() {
     setError(null)
     try {
-      const [m, g, r, c] = await Promise.all([
+      const [m, g, r, c, t] = await Promise.all([
         fetch("/api/admin/models", { headers: headers() }),
         fetch("/api/admin/gate", { headers: headers() }),
         fetch("/api/admin/runs", { headers: headers() }),
         fetch("/api/admin/config", { headers: headers() }),
+        fetch("/api/admin/trigger-status", { headers: headers() }),
       ])
       if (m.status === 401) {
         setError("Sai admin token")
@@ -52,6 +54,7 @@ export default function Admin() {
       setGate(await g.json())
       setRuns((await r.json()).runs || [])
       setConfig(JSON.stringify(await c.json(), null, 2))
+      setTrigger(await t.json())
       setAuthed(true)
     } catch {
       setError("Không kết nối được API")
@@ -246,6 +249,78 @@ export default function Admin() {
           </div>
         ) : (
           <p className="text-sm text-slate-500">Chưa có candidate (Staging) để so sánh.</p>
+        )}
+      </section>
+
+      <section className="mb-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="font-semibold text-slate-900">Tín hiệu trigger (S1–S4)</h2>
+          <button
+            onClick={loadAll}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100"
+          >
+            Làm mới
+          </button>
+        </div>
+        {trigger ? (
+          <div>
+            <p className="mb-3 text-sm">
+              Auto-trigger:{" "}
+              <span className={trigger.enabled ? "text-green-700" : "text-slate-500"}>
+                {trigger.enabled ? "BẬT" : "TẮT"}
+              </span>{" "}
+              · Cooldown: {trigger.cooldown_ok ? "sẵn sàng" : "đang chờ"} · Sẽ kích hoạt:{" "}
+              <b className={trigger.would_trigger ? "text-red-700" : "text-slate-600"}>
+                {trigger.would_trigger ? "CÓ" : "không"}
+              </b>
+            </p>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-400">
+                  <th className="pb-2">Tín hiệu</th>
+                  <th>Mô tả</th>
+                  <th>Trạng thái</th>
+                  <th>Chi tiết</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  ["S1", "Đủ dữ liệu review mới"],
+                  ["S2", "Drift / confidence thấp"],
+                  ["S3", "Hiệu năng giảm (online)"],
+                ].map(([code, label]) => {
+                  const c = trigger.checks?.[code] || {}
+                  const { fired, ...rest } = c
+                  return (
+                    <tr key={code} className="border-t border-slate-100 align-top">
+                      <td className="py-2 font-medium">{code}</td>
+                      <td>{label}</td>
+                      <td>
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs ${
+                            fired ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-500"
+                          }`}
+                        >
+                          {fired ? "BẬT" : "tắt"}
+                        </span>
+                      </td>
+                      <td className="font-mono text-xs text-slate-500">
+                        {Object.entries(rest)
+                          .map(([k, v]) => `${k}=${v}`)
+                          .join(" · ")}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+            <p className="mt-3 text-xs text-slate-500">
+              <b>S4 — Định kỳ:</b> do Prefect cron tự lên lịch (xem <code>schedule_cron</code> trong config bên dưới),
+              không nằm trong vòng lặp này. Đổi lịch xong cần restart <code>prefect-worker</code>.
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">Đang tải…</p>
         )}
       </section>
 

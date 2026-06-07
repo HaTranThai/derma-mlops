@@ -37,6 +37,28 @@ LIMIT %(limit)s OFFSET %(offset)s
 
 REVIEWED_COUNT_SQL = "SELECT count(*) AS total FROM reviews"
 
+REVIEWED_SINCE_SQL = """
+SELECT count(*) AS total
+FROM reviews
+WHERE review_status = 'reviewed'
+  AND (%(since)s::timestamptz IS NULL OR reviewed_at > %(since)s)
+"""
+
+ONLINE_ACCURACY_SQL = """
+WITH recent AS (
+    SELECT p.predicted_class, r.review_label
+    FROM reviews r
+    JOIN predictions p ON p.prediction_id = r.prediction_id
+    WHERE r.review_status = 'reviewed' AND r.review_label IS NOT NULL
+    ORDER BY r.reviewed_at DESC NULLS LAST
+    LIMIT %(window)s
+)
+SELECT
+    count(*) AS total,
+    coalesce(avg(CASE WHEN predicted_class = review_label THEN 1.0 ELSE 0.0 END), 0) AS accuracy
+FROM recent
+"""
+
 
 def list_queue(limit, offset):
     with pool.connection() as conn:
@@ -67,3 +89,15 @@ def count_reviews():
     with pool.connection() as conn:
         row = conn.execute(REVIEWED_COUNT_SQL).fetchone()
     return row["total"]
+
+
+def count_reviews_since(since):
+    with pool.connection() as conn:
+        row = conn.execute(REVIEWED_SINCE_SQL, {"since": since}).fetchone()
+    return row["total"]
+
+
+def online_accuracy(window):
+    with pool.connection() as conn:
+        row = conn.execute(ONLINE_ACCURACY_SQL, {"window": window}).fetchone()
+    return {"count": row["total"], "accuracy": float(row["accuracy"])}

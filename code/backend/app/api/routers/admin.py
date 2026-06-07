@@ -2,7 +2,7 @@ from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
 
 from app.core.config import settings
 from app.repositories import config_repository, run_repository
-from app.services import mlflow_service, prefect_trigger, retrain_service
+from app.services import auto_trigger, mlflow_service, prefect_trigger, retrain_service
 from app.services.gradcam_service import GradCAM
 from app.services.model_service import ModelService
 
@@ -59,6 +59,11 @@ def gate_preview():
     config = config_repository.get_config()
     gate = mlflow_service.evaluate_gate(production["metrics"], candidate["metrics"], config.get("promote_rules"))
     return {"production": production, "candidate": candidate, "gate": gate}
+
+
+@router.get("/trigger-status", dependencies=[Depends(require_admin)])
+def trigger_status():
+    return auto_trigger.status()
 
 
 @router.get("/runs", dependencies=[Depends(require_admin)])
