@@ -36,11 +36,23 @@ def promote(version):
     _with_retry(lambda: mlflow_service.promote_version(version))
 
 
+def train_candidate():
+    from app.services import trainer
+
+    return _with_retry(lambda: trainer.train_smoke(config_repository.get_config()), retries=1)
+
+
 def run(trigger_reason="manual"):
     pool.open()
     config = config_repository.get_config()
     mode = config.get("mode", "artifact")
     reviewed = gather_reviewed()
+
+    trained = None
+    if mode == "smoke":
+        trained = train_candidate()
+        logger.warning("Smoke da train candidate moi: %s", trained)
+
     production, candidate = select_models()
 
     if production is None or candidate is None:
@@ -75,6 +87,7 @@ def run(trigger_reason="manual"):
         "candidate": candidate,
         "gate": gate,
         "promoted": promoted,
+        "trained": trained,
     }
     run_repository.insert_run({
         "trigger_reason": trigger_reason,

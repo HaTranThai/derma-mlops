@@ -89,13 +89,14 @@ docker compose up --build
 DVC đã init tại repo, remote = MinIO bucket `dvc-store`. Dùng venv `.venv` (đã cài `dvc[s3]`):
 
 ```bash
-.venv/bin/dvc add models/production/model_efficientnet_b0_v2.pt   # version artifact
-.venv/bin/dvc push        # đẩy lên MinIO
+.venv/bin/dvc add models/production/model_efficientnet_b0_v2.pt   # version model artifact
+.venv/bin/dvc add data/subset                                     # version DỮ LIỆU (subset ảnh)
+.venv/bin/dvc push        # đẩy lên MinIO (bucket dvc-store)
 .venv/bin/dvc pull        # kéo về (tái lập)
 .venv/bin/dvc status -c   # so với remote
 ```
 
-File `*.dvc` (con trỏ md5) được git track; binary lưu trên MinIO. Secret remote ở `.dvc/config.local` (gitignored). Version bộ ảnh HAM10000 dùng cùng cơ chế, chạy ở môi trường có dataset.
+File `*.dvc` (con trỏ md5) được git track; binary (model + ảnh) lưu trên MinIO. Secret remote ở `.dvc/config.local` (gitignored). `data/subset` (10 ảnh/lớp) được DVC version và worker dùng cho **smoke retrain** (train thật). Version full HAM10000 dùng cùng cơ chế, chạy ở môi trường có toàn bộ dataset.
 
 ## Scripts (mô phỏng streaming & drift)
 

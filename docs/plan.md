@@ -1036,6 +1036,10 @@ Vì máy local không GPU, retrain đầy đủ rất chậm. Hệ thống hỗ 
 
 → Demo cả hai: gate *từ chối* model smoke yếu VÀ *chấp nhận* v2 thật. Vừa trung thực, vừa thuyết phục, vừa cho thấy gate hoạt động đúng cả 2 chiều.
 
+**Tình trạng hiện thực (đã code & verify):** mode `smoke` **train THẬT** — `backend/app/services/trainer.py` đọc subset ảnh ở `DATASET_PATH` (mount từ `data/subset`, được DVC version → MinIO), build EfficientNet-B0 (transfer learning, `freeze_backbone` cho candidate yếu có chủ đích), train vài epoch CPU, tính metric (accuracy/macro_f1/melanoma_recall) trên val split, lưu checkpoint, log MLflow + **đăng ký version mới (Staging)**. `retrain_service.run()` rẽ nhánh theo `mode`: `smoke` → gọi trainer tạo candidate thật rồi đưa qua promote gate; `artifact` → dùng v1/v2 có sẵn. Tham số smoke (`epochs`, `batch_size`, `learning_rate`, `freeze_backbone`, `val_fraction`) nằm trong `system_config.smoke` (sửa ở trang Admin). Đã verify qua Prefect: train 70 ảnh → candidate macro_f1≈0.33 → **gate từ chối**, v2 giữ Production.
+
+> Lưu ý trung thực: subset chỉ ~10 ảnh/lớp nên metric val rất nhiễu — đúng bản chất "smoke" (chứng minh *cơ chế* train→eval→gate chạy thật, không nhằm ra model tốt). Train full HAM10000 vẫn nên chạy ở môi trường GPU (Kaggle); trong hệ thống dùng mode `artifact` cho câu chuyện cải thiện thật.
+
 ## 18.4. File cấu hình `retrain_config.yaml`
 
 Mọi tham số gom về 1 file để dễ điều chỉnh (khi bảo vệ hỏi gì chỉnh đó), không hardcode:

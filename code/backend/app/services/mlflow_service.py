@@ -86,6 +86,19 @@ def seed_models():
     return result
 
 
+def register_candidate(run_id, version_tag="smoke", stage="Staging"):
+    client = _client()
+    _ensure_registered_model(client)
+    version = client.create_model_version(
+        name=MODEL_NAME,
+        source=f"runs:/{run_id}/model",
+        run_id=run_id,
+        tags={"version_tag": version_tag},
+    )
+    client.transition_model_version_stage(MODEL_NAME, version.version, stage)
+    return {"version": int(version.version), "tag": version_tag, "stage": stage}
+
+
 def get_candidate():
     for item in reversed(list_versions()):
         if item["stage"] == "Staging":

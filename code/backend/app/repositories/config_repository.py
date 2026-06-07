@@ -20,6 +20,15 @@ DEFAULT_RETRAIN_CONFIG = {
         "auto_check_interval_seconds": 30,
         "cooldown_minutes": 2,
     },
+    "smoke": {
+        "epochs": 3,
+        "batch_size": 16,
+        "learning_rate": 0.001,
+        "freeze_backbone": True,
+        "val_fraction": 0.3,
+        "seed": 42,
+        "version_tag": "smoke",
+    },
     "promote_rules": [
         {"metric": "macro_f1", "rule": "not_worse"},
         {"metric": "melanoma_recall", "rule": "not_worse"},

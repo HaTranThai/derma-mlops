@@ -1,0 +1,6 @@
+outs:
+- md5: b46b1f68a0ee4c897c6012b0508e8035.dir
+  size: 19985542
+  nfiles: 70
+  hash: md5
+  path: subset

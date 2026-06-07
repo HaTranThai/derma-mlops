@@ -7,6 +7,8 @@ class Settings:
     IMAGE_SIZE = int(os.getenv("IMAGE_SIZE", "224"))
     TOP_K = int(os.getenv("TOP_K", "3"))
 
+    DATASET_PATH = os.getenv("DATASET_PATH", "data/subset")
+
     DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://skin:skin_pass@localhost:5432/skinlesion")
 
     MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
