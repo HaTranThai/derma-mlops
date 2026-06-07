@@ -1,0 +1,5 @@
+outs:
+- md5: 664c9558c1509a419c8d4614670782b5
+  size: 16350525
+  hash: md5
+  path: model_efficientnet_b0_v2.pt
