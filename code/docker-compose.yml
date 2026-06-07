@@ -1,0 +1,145 @@
+services:
+  api:
+    build:
+      context: ./backend
+    ports:
+      - "8200:8000"
+    volumes:
+      - ./backend/app:/app/app
+      - ../models:/app/models
+    environment:
+      - MODEL_PATH=models/production/model_efficientnet_b0_v2.pt
+      - LOW_CONFIDENCE_THRESHOLD=0.5
+      - DATABASE_URL=postgresql://skin:skin_pass@postgres:5432/skinlesion
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_SECURE=false
+      - MINIO_BUCKET_PREDICTIONS=predictions
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MLFLOW_MODEL_NAME=skin_lesion_classifier
+      - ADMIN_TOKEN=admin-secret
+      - PREFECT_API_URL=http://prefect-server:4200/api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "3100:3000"
+    environment:
+      - INTERNAL_API_URL=http://api:8000
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=skin
+      - POSTGRES_PASSWORD=skin_pass
+      - POSTGRES_DB=skinlesion
+    ports:
+      - "5434:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U skin -d skinlesion"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  mlflow:
+    build:
+      context: ./mlflow
+    environment:
+      - MLFLOW_S3_ENDPOINT_URL=http://minio:9000
+      - AWS_ACCESS_KEY_ID=minioadmin
+      - AWS_SECRET_ACCESS_KEY=minioadmin
+      - AWS_DEFAULT_REGION=us-east-1
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow_data:/mlflow
+    depends_on:
+      - minio
+    restart: unless-stopped
+
+  prefect-server:
+    image: prefecthq/prefect:2-python3.11
+    command: prefect server start --host 0.0.0.0
+    ports:
+      - "4200:4200"
+    volumes:
+      - prefect_data:/root/.prefect
+    restart: unless-stopped
+
+  prefect-worker:
+    build:
+      context: .
+      dockerfile: prefect/Dockerfile
+    volumes:
+      - ./backend/app:/app/app
+    environment:
+      - PREFECT_API_URL=http://prefect-server:4200/api
+      - DATABASE_URL=postgresql://skin:skin_pass@postgres:5432/skinlesion
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MLFLOW_MODEL_NAME=skin_lesion_classifier
+    depends_on:
+      - prefect-server
+      - postgres
+      - mlflow
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  pg_data:
+  minio_data:
+  grafana_data:
+  mlflow_data:
+  prefect_data:
