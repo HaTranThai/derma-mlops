@@ -1,0 +1,41 @@
+# Secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Models & data (quản lý bằng DVC/MinIO sau)
+models/production/*.pt
+data/raw/
+data/interim/
+data/processed/
+data/simulation/
+*.sql.dump
+
+# Build / cache
+dist/
+.pytest_cache/
+
+# IDE
+.idea/
+.vscode/settings.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+node_modules/
+.next/
+next-env.d.ts
+demo/
