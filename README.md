@@ -9,7 +9,7 @@ Hệ thống MLOps phân loại tổn thương da từ ảnh dermoscopy (HAM1000
 - ✅ **Phase 2** — Lưu trữ: PostgreSQL (prediction log) + MinIO (ảnh) + trang Lịch sử
 - ✅ **Phase 3** — Monitoring: Prometheus + Grafana + drift detection + review queue + scripts streaming
 - ✅ **Phase 5** — MLflow registry + **Prefect orchestration (server + worker, service riêng)** + retraining flow + promote gate + trang Admin (control plane) + **DVC** (version model artifact → MinIO remote `dvc-store`; version bộ ảnh HAM10000 chạy ở môi trường có dữ liệu).
-- ✅ **Phase 4** — Kafka (KRaft): `/predict` bắn event `prediction-events` → **consumer** ghi DB bất đồng bộ (tách serving↔logging) + fallback ghi thẳng khi Kafka down
+- ✅ **Phase 4** — Kafka (KRaft): `/predict` bắn event `prediction-events` → **2 consumer khác group (fan-out)**: `prediction-logger` ghi DB async, `drift-monitor` cảnh báo drift real-time. Có fallback ghi thẳng khi Kafka down
 - 🔶 **Phase 6** — Test (pytest, 17 test: gate/drift/config/PSI) + CI (GitHub Actions) — *cơ bản; chưa có integration/coverage cao*
 
 > **Hardening đã làm thêm:** MLflow backend chuyển **SQLite → PostgreSQL** (bỏ SPOF); monitoring thêm **drift thống kê PSI** (`population_drift_psi`) bên cạnh heuristic chất lượng ảnh; **secrets externalize** ra `code/.env` (xem `.env.example` + [docs/SECURITY.md](docs/SECURITY.md)).
@@ -51,7 +51,8 @@ docker compose up --build
 | `prefect-server` | 4200 | Prefect orchestration (UI + API) |
 | `prefect-worker` | — | Chạy retraining flow (env cô lập) |
 | `kafka` | — | Message broker (KRaft) — topic `prediction-events` |
-| `consumer` | — | Đọc Kafka → ghi prediction vào Postgres (async) |
+| `consumer` | — | Group `prediction-logger`: đọc Kafka → ghi prediction vào Postgres (async) |
+| `alert-consumer` | — | Group `drift-monitor`: đọc cùng topic → cảnh báo drift real-time (fan-out) |
 
 ## API
 

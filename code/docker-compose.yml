@@ -162,6 +162,19 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  alert-consumer:
+    build:
+      context: ./backend
+    command: python -m app.consumer.drift_alert_consumer
+    volumes:
+      - ./backend/app:/app/app
+    environment:
+      - KAFKA_BROKER=kafka:9092
+    depends_on:
+      kafka:
+        condition: service_started
+    restart: unless-stopped
+
   grafana:
     image: grafana/grafana:latest
     environment:

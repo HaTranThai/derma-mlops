@@ -29,6 +29,11 @@ class Settings:
     KAFKA_BROKER = os.getenv("KAFKA_BROKER", "kafka:9092")
     KAFKA_PREDICTION_TOPIC = os.getenv("KAFKA_PREDICTION_TOPIC", "prediction-events")
 
+    ALERT_WINDOW = int(os.getenv("ALERT_WINDOW", "20"))
+    ALERT_MIN_SAMPLES = int(os.getenv("ALERT_MIN_SAMPLES", "10"))
+    ALERT_DRIFT_THRESHOLD = float(os.getenv("ALERT_DRIFT_THRESHOLD", "0.5"))
+    ALERT_LOWCONF_THRESHOLD = float(os.getenv("ALERT_LOWCONF_THRESHOLD", "0.5"))
+
     DRIFT_BRIGHTNESS_LOW = float(os.getenv("DRIFT_BRIGHTNESS_LOW", "0.25"))
     DRIFT_BRIGHTNESS_HIGH = float(os.getenv("DRIFT_BRIGHTNESS_HIGH", "0.85"))
     DRIFT_BLUR_THRESHOLD = float(os.getenv("DRIFT_BLUR_THRESHOLD", "120.0"))
