@@ -213,7 +213,9 @@ MLflow **không chạy gì cả** — nó **ghi nhận + quản trị**:
 ### 8.1. Dự đoán (predict)
 ```
 Browser → frontend(proxy) → api
-   api: model(.pt) → top-k + Grad-CAM; tính drift; upload ảnh → MinIO(predictions); ghi 1 dòng → Postgres
+   api: model(.pt) → top-k + Grad-CAM; tính drift; upload ảnh → MinIO(predictions)
+   api → bắn event vào Kafka(prediction-events) → consumer ghi 1 dòng → Postgres (async)
+        (Kafka down → api ghi thẳng Postgres, fallback)
    ảnh hiển thị: Browser → frontend → api → stream từ MinIO
 ```
 

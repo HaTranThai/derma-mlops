@@ -8,8 +8,8 @@ Hệ thống MLOps phân loại tổn thương da từ ảnh dermoscopy (HAM1000
 - ✅ **Phase 1** — Serving slice: FastAPI `/predict` + Grad-CAM + Next.js
 - ✅ **Phase 2** — Lưu trữ: PostgreSQL (prediction log) + MinIO (ảnh) + trang Lịch sử
 - ✅ **Phase 3** — Monitoring: Prometheus + Grafana + drift detection + review queue + scripts streaming
-- ✅ **Phase 5** — MLflow registry + **Prefect orchestration (server + worker, service riêng)** + retraining flow + promote gate + trang Admin (control plane) + **DVC** (version model artifact → MinIO remote `dvc-store`; version bộ ảnh HAM10000 chạy ở môi trường có dữ liệu).
 - ✅ **Phase 4** — Kafka (KRaft): `/predict` bắn event `prediction-events` → **2 consumer khác group (fan-out)**: `prediction-logger` ghi DB async, `drift-monitor` cảnh báo drift real-time. Có fallback ghi thẳng khi Kafka down
+- ✅ **Phase 5** — MLflow registry (backend **PostgreSQL**) + **Prefect orchestration (server + worker)** + retraining flow + promote gate + trang Admin (control plane) + **DVC** (version model artifact + subset ảnh train → MinIO remote `dvc-store`; version full HAM10000 chạy ở môi trường có dữ liệu).
 - 🔶 **Phase 6** — Test (pytest, 17 test: gate/drift/config/PSI) + CI (GitHub Actions) — *cơ bản; chưa có integration/coverage cao*
 
 > **Hardening đã làm thêm:** MLflow backend chuyển **SQLite → PostgreSQL** (bỏ SPOF); monitoring thêm **drift thống kê PSI** (`population_drift_psi`) bên cạnh heuristic chất lượng ảnh; **secrets externalize** ra `code/.env` (xem `.env.example` + [docs/SECURITY.md](docs/SECURITY.md)).
@@ -47,7 +47,7 @@ docker compose up --build
 | `minio` | 9000 / 9001 | Object storage (ảnh) + console |
 | `prometheus` | 9090 | Thu thập metrics |
 | `grafana` | 3001 | Dashboard giám sát |
-| `mlflow` | 5000 | Tracking + Model Registry |
+| `mlflow` | 5000 | Tracking + Model Registry (backend PostgreSQL, artifacts MinIO) |
 | `prefect-server` | 4200 | Prefect orchestration (UI + API) |
 | `prefect-worker` | — | Chạy retraining flow (env cô lập) |
 | `kafka` | — | Message broker (KRaft) — topic `prediction-events` |
@@ -60,7 +60,7 @@ docker compose up --build
 |---|---|---|
 | GET | `/health` | Trạng thái + model version |
 | POST | `/predict?source=` | Upload ảnh → dự đoán + Grad-CAM; lưu ảnh MinIO + log Postgres + tính drift |
-| GET | `/predictions` | Lịch sử dự đoán (phân trang) + presigned URL ảnh |
+| GET | `/predictions` | Lịch sử dự đoán (phân trang) + URL ảnh (proxy `/api/img/{id}`) |
 | GET | `/predictions/{id}` | Chi tiết 1 dự đoán |
 | GET | `/predictions/{id}/image` | Stream ảnh gốc từ MinIO |
 | GET | `/reviews/queue` | Hàng chờ review (ảnh confidence thấp chưa review) |
@@ -101,7 +101,7 @@ DVC đã init tại repo, remote = MinIO bucket `dvc-store`. Dùng venv `.venv` 
 .venv/bin/dvc status -c   # so với remote
 ```
 
-File `*.dvc` (con trỏ md5) được git track; binary (model + ảnh) lưu trên MinIO. Secret remote ở `.dvc/config.local` (gitignored). `data/subset` (10 ảnh/lớp) được DVC version và worker dùng cho **smoke retrain** (train thật). Version full HAM10000 dùng cùng cơ chế, chạy ở môi trường có toàn bộ dataset.
+File `*.dvc` (con trỏ md5) được git track; binary (model + ảnh) lưu trên MinIO. Secret remote ở `.dvc/config.local` (gitignored). `data/subset` (40 ảnh/lớp, tập **train**) được DVC version và worker dùng cho **smoke retrain** (train thật). Version full HAM10000 dùng cùng cơ chế, chạy ở môi trường có toàn bộ dataset.
 
 ## Test
 
@@ -135,25 +135,30 @@ Source code nằm trong `code/`, tách thành **backend** và **frontend** riên
 ```
 headloader/
 ├── code/
-│   ├── backend/                # FastAPI service
+│   ├── backend/                # FastAPI service (api + consumer dùng chung image)
 │   │   ├── app/
-│   │   │   ├── api/            # main (lifespan), schemas, routers/ (health, predict, predictions, reviews, monitoring)
-│   │   │   ├── services/       # model, gradcam, storage (MinIO), drift
-│   │   │   ├── repositories/   # prediction, review, monitoring (Postgres)
+│   │   │   ├── api/            # main (lifespan), schemas, routers/ (health, predict, predictions, reviews, monitoring, admin)
+│   │   │   ├── services/       # model, gradcam, storage (MinIO), drift, mlflow, retrain, trainer, prefect_trigger, auto_trigger, kafka
+│   │   │   ├── repositories/   # prediction, review, monitoring, config, run (Postgres)
+│   │   │   ├── flows/          # Prefect: retraining_flow + serve (worker)
+│   │   │   ├── consumer/       # Kafka consumer: prediction_consumer, drift_alert_consumer
 │   │   │   ├── db/             # database (pool), schema.sql, init_db
 │   │   │   └── core/           # config, metrics (Prometheus)
-│   │   ├── Dockerfile
-│   │   └── requirements.txt
+│   │   ├── tests/              # pytest (gate, drift, config, PSI)
+│   │   ├── Dockerfile · requirements.txt · requirements-dev.txt
 │   ├── frontend/               # Next.js + React + Tailwind
-│   │   ├── app/                # page (Dự đoán), history/, review/, monitoring/, api/ (proxy)
-│   │   ├── Dockerfile
-│   │   └── package.json
+│   │   └── app/                # page (Dự đoán), history/, review/, monitoring/, admin/, api/ (proxy)
 │   ├── monitoring/             # prometheus.yml + grafana provisioning & dashboard
+│   ├── mlflow/ · prefect/ · postgres/init/   # Dockerfile/entrypoint/init SQL từng service
 │   ├── scripts/                # simulate_stream.py, create_drift_data.py
-│   └── docker-compose.yml
-├── docs/                       # plan.md, đề cương
-├── notebooks/                  # 01_train_models.ipynb
-├── models/production/          # model .pt (gitignored)
+│   ├── .env.example            # mẫu secrets (code/.env gitignored)
+│   └── docker-compose.yml      # 12 service
+├── docs/                       # plan.md, đề cương, SECURITY.md, giai-thich-he-thong-mlops.md, performance/
+├── notebooks/                  # 01_train_models.ipynb (+ _build_notebook.py)
+├── tests/performance/          # k6 load test (read-load.js, predict-load.js)
+├── data/                       # subset.dvc (DVC pointer); ảnh subset gitignored
+├── models/production/          # model .pt (gitignored, DVC-tracked)
+├── .github/workflows/          # ci.yml (backend pytest + frontend build)
 └── README.md
 ```
 

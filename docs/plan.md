@@ -6,12 +6,14 @@
 > Trọng tâm: **Kiến trúc hệ thống MLOps** (hướng sự kiện, phân lớp, đóng gói container) — mô hình học sâu là một thành phần có thể thay thế, không phải trọng tâm. Không phải hệ thống chẩn đoán y tế thay bác sĩ.  
 > Dataset chính đề xuất: HAM10000 / ISIC  
 > Model đề xuất: EfficientNet-B0 hoặc ResNet50  
-> Giao diện: Next.js + React + Tailwind (chính) + Streamlit (demo nhanh)  
+> Giao diện: Next.js + React + Tailwind  
 > Backend: FastAPI  
 > Object storage: MinIO (S3) — lưu ảnh prediction + DVC remote + MLflow artifacts  
 > MLOps: DVC + MLflow + Prefect (orchestration) + Docker Compose  
 > Streaming & Monitoring: Kafka (prediction event stream) + Prometheus + Grafana  
 > Retraining: tự động hoá bằng Prefect (trigger theo drift / lịch)  
+
+> **ĐIỀU CHỈNH SO VỚI BẢN GỐC (đã triển khai thực tế):** chỉ dùng **Next.js** cho frontend (đã bỏ Streamlit); **MLflow backend = PostgreSQL** (không phải SQLite); mã nguồn theo cấu trúc `code/backend` + `code/frontend` (xem README); deploy **12 service** gồm `prefect-server`/`prefect-worker` tách riêng và **2 Kafka consumer** (`consumer` ghi DB + `alert-consumer` cảnh báo drift). Cấu trúc thư mục thực tế xem [README](../README.md); các "tình trạng hiện thực" được ghi chú trong từng mục liên quan.
 
 ---
 
@@ -90,7 +92,7 @@ Hệ thống cần đạt các mục tiêu:
 6. Đánh giá model bằng nhiều metric phù hợp.
 7. Lưu model tốt nhất vào MLflow Model Registry.
 8. Deploy model bằng FastAPI.
-9. Xây dựng giao diện upload ảnh bằng Next.js (Streamlit để demo nhanh).
+9. Xây dựng giao diện upload ảnh bằng Next.js.
 10. Trả về kết quả gồm:
     - Lớp dự đoán.
     - Độ tin cậy.
@@ -385,8 +387,7 @@ Nguồn tham khảo:
 | Thành phần | Công nghệ |
 |---|---|
 | Backend API | FastAPI |
-| Frontend chính | Next.js + React + TailwindCSS (gọi API qua proxy route handler) |
-| Frontend demo nhanh | Streamlit |
+| Frontend | Next.js + React + TailwindCSS (gọi API qua proxy route handler) |
 | API test | Postman / curl / Python requests |
 | File upload | Multipart form-data |
 | Response | JSON + ảnh Grad-CAM |
@@ -594,19 +595,22 @@ flowchart TD
 
 Toàn bộ hệ thống chạy bằng một `docker-compose.yml`, gồm các service:
 
-| Service | Vai trò | Port (gợi ý) |
+> Bảng dưới là **hiện thực thực tế** (12 service, port host). Khác bản gợi ý ban đầu: chỉ dùng **Next.js** (đã bỏ Streamlit), tách `prefect-server`/`prefect-worker`, có thêm `alert-consumer`, MLflow backend là PostgreSQL.
+
+| Service | Vai trò | Port host |
 |---|---|---|
-| `api` | FastAPI — `/predict`, `/health`, `/review`, `/retrain` | 8000 |
-| `web` | Frontend chính (Next.js + React + Tailwind), proxy tới API | 3000 |
-| `frontend` | Streamlit UI (demo nhanh) | 8501 |
-| `consumer` | Kafka consumer — ghi log + metric + drift | — |
-| `kafka` | Message broker (KRaft mode, không cần Zookeeper) | 9092 |
-| `postgres` | Lưu prediction logs + review labels | 5432 |
+| `frontend` | Next.js + React + Tailwind (giao diện chính, proxy `/api/*`) | 3100 |
+| `api` | FastAPI — `/predict`, `/health`, `/reviews`, `/monitoring`, `/admin` | 8200 |
+| `consumer` | Kafka consumer (group `prediction-logger`) — ghi prediction → Postgres | — |
+| `alert-consumer` | Kafka consumer (group `drift-monitor`) — cảnh báo drift real-time | — |
+| `kafka` | Message broker (KRaft, không cần Zookeeper) — topic `prediction-events` | — |
+| `postgres` | prediction/review/config/runs **+ MLflow backend** | 5434 |
 | `minio` | Object storage (ảnh + DVC remote + MLflow artifacts) | 9000 / 9001 |
-| `mlflow` | Tracking server + Model Registry | 5000 |
-| `prefect` | Orchestration server (flows, schedule, trigger) | 4200 |
+| `mlflow` | Tracking server + Model Registry (backend Postgres) | 5000 |
+| `prefect-server` | Orchestration server (UI + API + cron S4) | 4200 |
+| `prefect-worker` | Chạy retraining flow (env cô lập) | — |
 | `prometheus` | Thu thập metrics | 9090 |
-| `grafana` | Dashboard + alert | 3000 |
+| `grafana` | Dashboard | 3001 |
 
 ### Luồng dữ liệu giữa các service
 
@@ -1213,7 +1217,7 @@ Kích hoạt retraining thủ công trong demo.
 
 ## 20. Frontend design
 
-Giao diện chính dùng **Next.js + React + Tailwind**, gọi API qua proxy route handler nội bộ (browser chỉ gọi `/api/*` cùng origin → không CORS, không lộ URL API). Streamlit giữ làm bản demo nhanh. Giao diện nên có:
+Giao diện chính dùng **Next.js + React + Tailwind**, gọi API qua proxy route handler nội bộ (browser chỉ gọi `/api/*` cùng origin → không CORS, không lộ URL API). Giao diện nên có:
 
 1. Upload ảnh.
 2. Preview ảnh gốc.
@@ -1246,11 +1250,9 @@ skin-lesion-mlops/
 │   │   ├── routes.py
 │   │   └── schemas.py
 │   │
-│   ├── frontend/                       # Streamlit (demo nhanh)
-│   │   └── streamlit_app.py
-│   │
-│   ├── consumers/
-│   │   └── prediction_consumer.py     # Kafka consumer: log + metric + drift
+│   ├── consumer/                       # Kafka consumer (chạy ở container riêng)
+│   │   ├── prediction_consumer.py      # group prediction-logger: ghi prediction → Postgres
+│   │   └── drift_alert_consumer.py     # group drift-monitor: cảnh báo drift real-time
 │   │
 │   └── services/
 │       ├── model_service.py
@@ -1565,7 +1567,7 @@ Công việc:
 - Xây FastAPI.
 - Viết `/predict`.
 - Tích hợp model loading.
-- Tạo giao diện web (Next.js) + Streamlit demo.
+- Tạo giao diện web (Next.js).
 - Upload ảnh và hiển thị kết quả.
 - Tích hợp Grad-CAM.
 
@@ -1715,7 +1717,7 @@ Một bản đồ án tốt nên có:
 - MLflow Tracking + **Model Registry**.
 - DVC data versioning (**remote backend MinIO**).
 - **MinIO** lưu ảnh prediction + artifacts.
-- FastAPI inference + Web UI (Next.js) + Streamlit demo + Grad-CAM.
+- FastAPI inference + Web UI (Next.js) + Grad-CAM.
 - Prediction logging vào **PostgreSQL**.
 - **Kafka** streaming prediction event.
 - Monitoring **Prometheus + Grafana** + drift alert.
@@ -1991,7 +1993,6 @@ Storage:
 Serving:
 - FastAPI
 - Next.js (web chính)
-- Streamlit (demo nhanh)
 
 Explainability:
 - Grad-CAM
@@ -2018,7 +2019,7 @@ Chất lượng & vận hành:
 
 ## 34. Kết luận
 
-Hướng đề tài tốt nhất là xây dựng một hệ thống MLOps hỗ trợ phân loại tổn thương da từ ảnh dermoscopy, sử dụng HAM10000 / ISIC làm dataset chính. Hệ thống không chỉ dừng ở việc train một model phân loại, mà tập trung vào toàn bộ vòng đời machine learning: data versioning (DVC + MinIO), experiment tracking & model registry (MLflow), orchestration (Prefect), serving (FastAPI + Next.js + Streamlit demo), streaming sự kiện (Kafka), monitoring (Prometheus + Grafana), drift detection và retraining có promote gate — toàn bộ chạy bằng Docker Compose và được bảo vệ bởi test tự động + CI.
+Hướng đề tài tốt nhất là xây dựng một hệ thống MLOps hỗ trợ phân loại tổn thương da từ ảnh dermoscopy, sử dụng HAM10000 / ISIC làm dataset chính. Hệ thống không chỉ dừng ở việc train một model phân loại, mà tập trung vào toàn bộ vòng đời machine learning: data versioning (DVC + MinIO), experiment tracking & model registry (MLflow), orchestration (Prefect), serving (FastAPI + Next.js), streaming sự kiện (Kafka), monitoring (Prometheus + Grafana), drift detection và retraining có promote gate — toàn bộ chạy bằng Docker Compose và được bảo vệ bởi test tự động + CI.
 
 Đây là hướng vừa đủ khả thi cho đồ án tốt nghiệp, vừa có tính ứng dụng, vừa thể hiện rõ năng lực về MLOps ở mức Level 1 đầy đủ và hiện thực hoá các cơ chế Level 2. Phần RAG, dữ liệu ảnh điện thoại, mobile app, Kubernetes và bác sĩ review thực tế được đưa vào hướng phát triển sau khi MVP hoàn thành.
 
