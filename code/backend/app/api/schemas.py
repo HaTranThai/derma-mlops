@@ -98,5 +98,8 @@ class MonitoringStats(BaseModel):
     avg_latency_ms: float
     low_confidence_rate: float
     drift_rate: float
+    input_quality_anomaly_rate: float
+    population_drift_psi: float
+    population_drift_level: str
     class_distribution: List[ClassCount]
     review_queue: int
