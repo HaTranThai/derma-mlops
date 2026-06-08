@@ -414,7 +414,7 @@ Thành phần:
 - **Prometheus**: thu thập & lưu metrics dạng time-series.
 - **Grafana**: dashboard + alert rule.
 
-> Phương án fallback nếu thiếu thời gian: bỏ Kafka, consumer xử lý trực tiếp trong request. Nhưng theo kế hoạch hiện tại **Kafka là thành phần chính**.
+> **TÌNH TRẠNG HIỆN THỰC (cập nhật):** Kafka **CHƯA được hiện thực**. Hệ thống hiện dùng **phương án đồng bộ**: mỗi `/predict` ghi PostgreSQL + tính drift **ngay trong request** (không qua message broker). Lý do: trọng tâm đồ án là MLOps lifecycle (registry/gate/orchestration/retraining) đã chạy đủ; Kafka thêm độ phức tạp vận hành mà không đổi bản chất bài toán. → **Kafka chuyển sang "Hướng phát triển"** (decouple serving↔monitoring khi cần scale nhiều consumer). Nếu triển khai: thêm service `kafka` (KRaft) + `consumer`, `/predict` chỉ bắn event, consumer ghi log/metric/drift bất đồng bộ.
 
 ---
 

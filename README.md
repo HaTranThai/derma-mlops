@@ -9,8 +9,10 @@ Hệ thống MLOps phân loại tổn thương da từ ảnh dermoscopy (HAM1000
 - ✅ **Phase 2** — Lưu trữ: PostgreSQL (prediction log) + MinIO (ảnh) + trang Lịch sử
 - ✅ **Phase 3** — Monitoring: Prometheus + Grafana + drift detection + review queue + scripts streaming
 - ✅ **Phase 5** — MLflow registry + **Prefect orchestration (server + worker, service riêng)** + retraining flow + promote gate + trang Admin (control plane) + **DVC** (version model artifact → MinIO remote `dvc-store`; version bộ ảnh HAM10000 chạy ở môi trường có dữ liệu).
-- ⬜ Phase 4 — Kafka streaming
-- ⬜ Phase 6 — Test + CI
+- 🔶 **Phase 6** — Test (pytest, 17 test: gate/drift/config/PSI) + CI (GitHub Actions) — *cơ bản; chưa có integration/coverage cao*
+- ⬜ Phase 4 — Kafka streaming (đã hạ xuống **Hướng phát triển**; hiện `/predict` xử lý đồng bộ)
+
+> **Hardening đã làm thêm:** MLflow backend chuyển **SQLite → PostgreSQL** (bỏ SPOF); monitoring thêm **drift thống kê PSI** (`population_drift_psi`) bên cạnh heuristic chất lượng ảnh; **secrets externalize** ra `code/.env` (xem `.env.example` + [docs/SECURITY.md](docs/SECURITY.md)).
 
 ## Chạy (Phase 1)
 
@@ -97,6 +99,19 @@ DVC đã init tại repo, remote = MinIO bucket `dvc-store`. Dùng venv `.venv` 
 ```
 
 File `*.dvc` (con trỏ md5) được git track; binary (model + ảnh) lưu trên MinIO. Secret remote ở `.dvc/config.local` (gitignored). `data/subset` (10 ảnh/lớp) được DVC version và worker dùng cho **smoke retrain** (train thật). Version full HAM10000 dùng cùng cơ chế, chạy ở môi trường có toàn bộ dataset.
+
+## Test
+
+```bash
+# Chạy trong image api (đã có sẵn dependencies)
+cd code
+docker compose run --rm --no-deps -v "$PWD/backend:/test" -w /test api \
+  sh -c "pip install -q pytest==8.2.0 && pytest"
+
+# Hoặc local (cài requirements-dev.txt)
+cd code/backend && pip install -r requirements-dev.txt && pytest
+```
+17 unit test: promote gate · drift scoring · config schema · population drift (PSI). CI tự chạy qua `.github/workflows/ci.yml`.
 
 ## Scripts (mô phỏng streaming & drift)
 
