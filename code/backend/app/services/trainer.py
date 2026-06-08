@@ -19,6 +19,19 @@ IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
 
+def _data_version():
+    pointer = settings.DATASET_PATH.rstrip("/") + ".dvc"
+    try:
+        with open(pointer) as handle:
+            for line in handle:
+                stripped = line.strip().lstrip("- ")
+                if stripped.startswith("md5:"):
+                    return stripped.split("md5:", 1)[1].strip()
+    except Exception as err:
+        logger.warning("Khong doc duoc data version tu %s: %s", pointer, err)
+    return "unversioned"
+
+
 def _index_dataset(root):
     classes = sorted(d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d)))
     samples = []
@@ -153,6 +166,9 @@ def train_smoke(config):
     metrics = _evaluate(model, val_loader, device, len(classes), mel_index)
     logger.warning("Smoke metrics: %s", metrics)
 
+    data_version = _data_version()
+    logger.warning("Train tren data version (DVC): %s", data_version)
+
     mlflow.set_tracking_uri(settings.MLFLOW_TRACKING_URI)
     mlflow.set_experiment(settings.MLFLOW_EXPERIMENT)
     with tempfile.TemporaryDirectory() as folder:
@@ -161,6 +177,7 @@ def train_smoke(config):
             "classes": classes,
             "model_name": "efficientnet_b0",
             "version": version_tag,
+            "data_version": data_version,
             "image_size": image_size,
             "state_dict": model.state_dict(),
         }, ckpt_path)
@@ -174,10 +191,11 @@ def train_smoke(config):
                 "freeze_backbone": freeze_backbone,
                 "n_train": len(train_samples),
                 "n_val": len(val_samples),
+                "data_version": data_version,
             })
             mlflow.log_metrics(metrics)
             mlflow.log_artifact(ckpt_path, artifact_path="model")
             run_id = run.info.run_id
 
     candidate = mlflow_service.register_candidate(run_id, version_tag=version_tag, stage="Staging")
-    return {**candidate, "metrics": metrics}
+    return {**candidate, "metrics": metrics, "data_version": data_version}

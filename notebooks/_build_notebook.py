@@ -248,6 +248,29 @@ print(df_test["label"].value_counts())
 """)
 
 md(r"""
+## 5.2. Xuất train-subset cho smoke retrain (hệ thống MLOps)
+
+Copy `N_TRAIN_PER_CLASS` ảnh mỗi lớp **từ tập train** (`df_train_full`, KHÔNG phải test → không leakage) vào `train_subset/{lớp}/` và nén `train_subset.zip`. Đây là dữ liệu để **smoke retrain** train thật trong worker. Tải về, giải nén vào `data/subset/` của repo rồi `dvc add data/subset`.
+""")
+
+code(r"""
+TRAIN_SUBSET_DIR = os.path.join(WORK_DIR, "train_subset")
+os.makedirs(TRAIN_SUBSET_DIR, exist_ok=True)
+
+N_TRAIN_PER_CLASS = 40
+for cls in CLASSES:
+    cls_dir = os.path.join(TRAIN_SUBSET_DIR, cls)
+    os.makedirs(cls_dir, exist_ok=True)
+    subset = df_train_full[df_train_full["label"] == cls].head(N_TRAIN_PER_CLASS)
+    for _, row in subset.iterrows():
+        shutil.copy(row["path"], os.path.join(cls_dir, f"{row['image_id']}.jpg"))
+
+train_zip = shutil.make_archive(os.path.join(WORK_DIR, "train_subset"), "zip", TRAIN_SUBSET_DIR)
+print("Train-subset (", N_TRAIN_PER_CLASS, "moi lop ):", TRAIN_SUBSET_DIR)
+print("File nen de tai ve:", train_zip)
+""")
+
+md(r"""
 ## 6. Thiết lập dữ liệu cho `v1` và `v2`
 
 `v1` chỉ dùng 30% train set (lấy ngẫu nhiên, giữ nguyên mất cân bằng). `v2` dùng toàn bộ train set.

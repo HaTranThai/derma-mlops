@@ -47,9 +47,10 @@ class ModelService:
         checkpoint = torch.load(self.model_path, map_location=self.device)
         self.classes = checkpoint["classes"]
         self.model_name = checkpoint["model_name"]
-        self.data_version = checkpoint["version"]
+        self.version_tag = checkpoint["version"]
+        self.data_version = checkpoint.get("data_version", checkpoint["version"])
         self.image_size = checkpoint.get("image_size", settings.IMAGE_SIZE)
-        self.model_version = f"{self.model_name}_{self.data_version}"
+        self.model_version = f"{self.model_name}_{self.version_tag}"
         model = build_model(self.model_name, len(self.classes))
         model.load_state_dict(checkpoint["state_dict"])
         model.to(self.device).eval()
