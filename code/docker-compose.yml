@@ -22,10 +22,13 @@ services:
       - MLFLOW_MODEL_NAME=skin_lesion_classifier
       - ADMIN_TOKEN=${ADMIN_TOKEN:-admin-secret}
       - PREFECT_API_URL=http://prefect-server:4200/api
+      - KAFKA_BROKER=kafka:9092
     depends_on:
       postgres:
         condition: service_healthy
       minio:
+        condition: service_started
+      kafka:
         condition: service_started
     restart: unless-stopped
 
@@ -125,6 +128,38 @@ services:
       - prefect-server
       - postgres
       - mlflow
+    restart: unless-stopped
+
+  kafka:
+    image: apache/kafka:3.7.1
+    environment:
+      - KAFKA_NODE_ID=1
+      - KAFKA_PROCESS_ROLES=broker,controller
+      - KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+      - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+    restart: unless-stopped
+
+  consumer:
+    build:
+      context: ./backend
+    command: python -m app.consumer.prediction_consumer
+    volumes:
+      - ./backend/app:/app/app
+    environment:
+      - DATABASE_URL=postgresql://skin:${POSTGRES_PASSWORD:-skin_pass}@postgres:5432/skinlesion
+      - KAFKA_BROKER=kafka:9092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
     restart: unless-stopped
 
   grafana:

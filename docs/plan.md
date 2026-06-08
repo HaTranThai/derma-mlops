@@ -414,7 +414,7 @@ Thành phần:
 - **Prometheus**: thu thập & lưu metrics dạng time-series.
 - **Grafana**: dashboard + alert rule.
 
-> **TÌNH TRẠNG HIỆN THỰC (cập nhật):** Kafka **CHƯA được hiện thực**. Hệ thống hiện dùng **phương án đồng bộ**: mỗi `/predict` ghi PostgreSQL + tính drift **ngay trong request** (không qua message broker). Lý do: trọng tâm đồ án là MLOps lifecycle (registry/gate/orchestration/retraining) đã chạy đủ; Kafka thêm độ phức tạp vận hành mà không đổi bản chất bài toán. → **Kafka chuyển sang "Hướng phát triển"** (decouple serving↔monitoring khi cần scale nhiều consumer). Nếu triển khai: thêm service `kafka` (KRaft) + `consumer`, `/predict` chỉ bắn event, consumer ghi log/metric/drift bất đồng bộ.
+> **TÌNH TRẠNG HIỆN THỰC (đã làm — Phase 4):** Kafka **ĐÃ được hiện thực** (KRaft, không Zookeeper). `/predict` làm inference + Grad-CAM + upload ảnh, rồi **bắn event vào topic `prediction-events`** (`services/kafka_service.py`) thay vì ghi DB trực tiếp; service **`consumer`** (`app/consumer/prediction_consumer.py`) đọc topic và ghi PostgreSQL bất đồng bộ → **tách serving khỏi logging**. Có **fallback**: nếu Kafka down, api ghi thẳng DB (không mất dữ liệu) — đã verify. Đánh đổi (đúng như dự kiến): độ trễ ghi log end-to-end cao hơn (eventual consistency dưới giây). Metrics Prometheus + drift scoring vẫn ở api (cần cho response + counter).
 
 ---
 

@@ -11,7 +11,7 @@ from app.api.schemas import PredictResponse, TopKItem
 from app.core import metrics
 from app.core.config import settings
 from app.repositories import prediction_repository
-from app.services import drift_service
+from app.services import drift_service, kafka_service
 from app.services.gradcam_service import overlay_cam
 
 logger = logging.getLogger("predict")
@@ -107,7 +107,7 @@ def _persist(storage, image, raw, content_type, prediction_id, top_k, predicted_
         ext = "png" if content_type and "png" in content_type else "jpg"
         image_key = f"{now:%Y/%m/%d}/{prediction_id}.{ext}"
         storage.upload_image(image_key, raw, content_type or "image/jpeg")
-        prediction_repository.insert_prediction({
+        record = {
             "prediction_id": prediction_id,
             "image_key": image_key,
             "image_width": image.width,
@@ -123,6 +123,13 @@ def _persist(storage, image, raw, content_type, prediction_id, top_k, predicted_
             "brightness_score": brightness,
             "blur_score": blur,
             "source": source,
-        })
+        }
+        # Hướng sự kiện: bắn event vào Kafka, consumer ghi DB bất đồng bộ.
+        # Fallback: nếu Kafka không sẵn sàng thì ghi thẳng để không mất dữ liệu.
+        try:
+            kafka_service.publish_prediction(record)
+        except Exception as err:
+            logger.warning("Kafka publish that bai (%s) -> fallback ghi truc tiep", err)
+            prediction_repository.insert_prediction(record)
     except Exception as err:
         logger.warning("Khong luu duoc prediction %s: %s", prediction_id, err)
