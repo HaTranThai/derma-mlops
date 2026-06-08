@@ -12,15 +12,15 @@ services:
       - MODEL_PATH=models/production/model_efficientnet_b0_v2.pt
       - DATASET_PATH=/app/data/subset
       - LOW_CONFIDENCE_THRESHOLD=0.5
-      - DATABASE_URL=postgresql://skin:skin_pass@postgres:5432/skinlesion
+      - DATABASE_URL=postgresql://skin:${POSTGRES_PASSWORD:-skin_pass}@postgres:5432/skinlesion
       - MINIO_ENDPOINT=minio:9000
-      - MINIO_ACCESS_KEY=minioadmin
-      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
       - MINIO_SECURE=false
       - MINIO_BUCKET_PREDICTIONS=predictions
       - MLFLOW_TRACKING_URI=http://mlflow:5000
       - MLFLOW_MODEL_NAME=skin_lesion_classifier
-      - ADMIN_TOKEN=admin-secret
+      - ADMIN_TOKEN=${ADMIN_TOKEN:-admin-secret}
       - PREFECT_API_URL=http://prefect-server:4200/api
     depends_on:
       postgres:
@@ -44,12 +44,13 @@ services:
     image: postgres:16-alpine
     environment:
       - POSTGRES_USER=skin
-      - POSTGRES_PASSWORD=skin_pass
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-skin_pass}
       - POSTGRES_DB=skinlesion
     ports:
       - "5434:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U skin -d skinlesion"]
       interval: 5s
@@ -61,8 +62,8 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      - MINIO_ROOT_USER=minioadmin
-      - MINIO_ROOT_PASSWORD=minioadmin
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -84,16 +85,18 @@ services:
     build:
       context: ./mlflow
     environment:
+      - BACKEND_STORE_URI=postgresql://skin:${POSTGRES_PASSWORD:-skin_pass}@postgres:5432/mlflow
       - MLFLOW_S3_ENDPOINT_URL=http://minio:9000
-      - AWS_ACCESS_KEY_ID=minioadmin
-      - AWS_SECRET_ACCESS_KEY=minioadmin
+      - AWS_ACCESS_KEY_ID=${MINIO_ROOT_USER:-minioadmin}
+      - AWS_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
       - AWS_DEFAULT_REGION=us-east-1
     ports:
       - "5000:5000"
-    volumes:
-      - mlflow_data:/mlflow
     depends_on:
-      - minio
+      minio:
+        condition: service_started
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   prefect-server:
@@ -114,7 +117,7 @@ services:
       - ../data:/app/data:ro
     environment:
       - PREFECT_API_URL=http://prefect-server:4200/api
-      - DATABASE_URL=postgresql://skin:skin_pass@postgres:5432/skinlesion
+      - DATABASE_URL=postgresql://skin:${POSTGRES_PASSWORD:-skin_pass}@postgres:5432/skinlesion
       - MLFLOW_TRACKING_URI=http://mlflow:5000
       - MLFLOW_MODEL_NAME=skin_lesion_classifier
       - DATASET_PATH=/app/data/subset
@@ -127,8 +130,8 @@ services:
   grafana:
     image: grafana/grafana:latest
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
     volumes:
