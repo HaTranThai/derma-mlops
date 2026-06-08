@@ -111,7 +111,9 @@ docker compose run --rm --no-deps -v "$PWD/backend:/test" -w /test api \
 # Hoặc local (cài requirements-dev.txt)
 cd code/backend && pip install -r requirements-dev.txt && pytest
 ```
-17 unit test: promote gate · drift scoring · config schema · population drift (PSI). CI tự chạy qua `.github/workflows/ci.yml`.
+17 unit test: promote gate · drift scoring · config schema · population drift (PSI). CI tự chạy qua `.github/workflows/ci.yml` (backend pytest + frontend build).
+
+> **CI có / CD chưa:** CI (test + build mỗi push/PR) đã hoạt động — đã verify pass ở môi trường sạch (`python:3.11`, `node:20`). **CD (deploy tự động) = hướng phát triển** (sẽ thêm job build+push image ghcr.io / deploy SSH lên VPS sau).
 
 ## Scripts (mô phỏng streaming & drift)
 
