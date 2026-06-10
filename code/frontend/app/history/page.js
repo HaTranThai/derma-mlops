@@ -41,30 +41,29 @@ export default function History() {
   const totalPages = data ? Math.max(1, Math.ceil(data.total / LIMIT)) : 1
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-8">
-      <h1 className="mb-1 text-2xl font-bold text-slate-900">Lịch sử dự đoán</h1>
-      <p className="mb-6 text-sm text-slate-500">
-        {data ? `Tổng cộng ${data.total} bản ghi` : ""}
-      </p>
+    <main className="mx-auto max-w-6xl px-4 py-10">
+      <div className="mb-6 animate-fade-up">
+        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">
+          Lịch sử <span className="gradient-text">dự đoán</span>
+        </h1>
+        <p className="mt-1 text-sm text-slate-500">{data ? `Tổng cộng ${data.total} bản ghi` : ""}</p>
+      </div>
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>
       )}
 
       {loading && <p className="text-sm text-slate-500">Đang tải...</p>}
 
       {data && data.items.length === 0 && (
-        <p className="text-sm text-slate-500">Chưa có dự đoán nào. Hãy thử upload ảnh ở trang Dự đoán.</p>
+        <div className="glass-card p-10 text-center text-sm text-slate-500">
+          Chưa có dự đoán nào. Hãy thử upload ảnh ở trang Dự đoán.
+        </div>
       )}
 
       <div className="grid gap-3">
         {data?.items.map((item) => (
-          <div
-            key={item.prediction_id}
-            className="flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
-          >
+          <div key={item.prediction_id} className="glass-card flex items-center gap-4 p-3 transition hover:shadow-2xl">
             {item.image_url ? (
               <img
                 src={item.image_url}
@@ -74,51 +73,38 @@ export default function History() {
                   e.currentTarget.onerror = null
                   e.currentTarget.src = PLACEHOLDER
                 }}
-                className="h-16 w-16 cursor-pointer rounded-lg border border-slate-200 object-cover transition hover:opacity-80"
+                className="h-16 w-16 cursor-pointer rounded-2xl border border-white object-cover shadow-sm transition hover:opacity-80"
               />
             ) : (
-              <div className="h-16 w-16 rounded-lg bg-slate-100" />
+              <div className="h-16 w-16 rounded-2xl bg-slate-100" />
             )}
             <div className="flex-1">
-              <div className="font-semibold text-slate-900">
+              <div className="font-bold text-slate-900">
                 {item.predicted_class}
-                <span className="ml-2 text-sm font-normal text-slate-500">
-                  {CLASS_NAMES[item.predicted_class] || ""}
-                </span>
+                <span className="ml-2 text-sm font-normal text-slate-500">{CLASS_NAMES[item.predicted_class] || ""}</span>
               </div>
-              <div className="text-sm text-slate-500">
-                Tin cậy {(item.confidence * 100).toFixed(1)}% · {item.latency_ms} ms ·{" "}
-                {item.model_version}
+              <div className="mt-0.5 text-sm text-slate-500">
+                Tin cậy <span className="font-semibold text-slate-700">{(item.confidence * 100).toFixed(1)}%</span> · {item.latency_ms} ms · {item.model_version}
               </div>
               <div className="text-xs text-slate-400">{item.prediction_id}</div>
             </div>
             {item.is_low_confidence && (
-              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs text-amber-800">
-                Tin cậy thấp
-              </span>
+              <span className="chip bg-amber-50 text-amber-700 ring-1 ring-amber-100">Tin cậy thấp</span>
             )}
           </div>
         ))}
       </div>
 
       {data && data.total > LIMIT && (
-        <div className="mt-6 flex items-center justify-center gap-4">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page <= 1}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-40"
-          >
-            Trước
+        <div className="mt-6 flex items-center justify-center gap-3">
+          <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="btn-soft disabled:opacity-40">
+            ← Trước
           </button>
-          <span className="text-sm text-slate-500">
-            Trang {page} / {totalPages}
+          <span className="rounded-xl bg-white/70 px-3 py-1.5 text-sm font-semibold text-slate-600 backdrop-blur">
+            {page} / {totalPages}
           </span>
-          <button
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page >= totalPages}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-40"
-          >
-            Sau
+          <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="btn-soft disabled:opacity-40">
+            Sau →
           </button>
         </div>
       )}

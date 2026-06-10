@@ -66,30 +66,35 @@ export default function Review() {
   }
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-8">
-      <h1 className="mb-1 text-2xl font-bold text-slate-900">Hàng chờ review</h1>
-      <p className="mb-6 text-sm text-slate-500">
-        Ảnh có độ tin cậy thấp cần chuyên gia xác nhận nhãn ({total} ảnh chờ)
-      </p>
+    <main className="mx-auto max-w-6xl px-4 py-10">
+      <div className="mb-6 animate-fade-up">
+        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">
+          Hàng chờ <span className="gradient-text">review</span>
+        </h1>
+        <p className="mt-1 flex items-center gap-2 text-sm text-slate-500">
+          <span className="chip bg-amber-50 text-amber-700 ring-1 ring-amber-100">{total} ảnh chờ</span>
+          Ảnh độ tin cậy thấp cần chuyên gia xác nhận nhãn
+        </p>
+      </div>
 
       {error && (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
+        <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>
       )}
 
       {loading && <p className="text-sm text-slate-500">Đang tải...</p>}
 
       {!loading && items.length === 0 && (
-        <p className="text-sm text-slate-500">Không có ảnh nào trong hàng chờ.</p>
+        <div className="glass-card flex flex-col items-center gap-2 p-10 text-center">
+          <span className="grid h-12 w-12 place-items-center rounded-2xl bg-emerald-50 text-emerald-500">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-6 w-6"><path d="M20 6 9 17l-5-5" /></svg>
+          </span>
+          <p className="text-sm text-slate-500">Tuyệt vời — không có ảnh nào trong hàng chờ.</p>
+        </div>
       )}
 
       <div className="grid gap-3">
         {items.map((item) => (
-          <div
-            key={item.prediction_id}
-            className="flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-3 shadow-sm"
-          >
+          <div key={item.prediction_id} className="glass-card flex items-center gap-4 p-3 transition hover:shadow-2xl">
             {item.image_url ? (
               <img
                 src={item.image_url}
@@ -99,44 +104,36 @@ export default function Review() {
                   e.currentTarget.onerror = null
                   e.currentTarget.src = PLACEHOLDER
                 }}
-                className="h-20 w-20 cursor-pointer rounded-lg border border-slate-200 object-cover transition hover:opacity-80"
+                className="h-20 w-20 cursor-pointer rounded-2xl border border-white object-cover shadow-sm transition hover:opacity-80"
               />
             ) : (
-              <div className="h-20 w-20 rounded-lg bg-slate-100" />
+              <div className="h-20 w-20 rounded-2xl bg-slate-100" />
             )}
 
             <div className="flex-1">
-              <div className="text-sm text-slate-500">Model dự đoán</div>
-              <div className="font-semibold text-slate-900">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Model dự đoán</div>
+              <div className="mt-0.5 font-bold text-slate-900">
                 {item.predicted_class}
-                <span className="ml-2 text-sm font-normal text-slate-500">
-                  {CLASS_NAMES[item.predicted_class] || ""}
-                </span>
-                <span className="ml-2 text-sm text-amber-700">
-                  ({(item.confidence * 100).toFixed(1)}%)
-                </span>
+                <span className="ml-2 text-sm font-normal text-slate-500">{CLASS_NAMES[item.predicted_class] || ""}</span>
               </div>
-              <div className="text-xs text-slate-400">{item.prediction_id}</div>
+              <div className="mt-1 flex items-center gap-2">
+                <span className="chip bg-amber-50 text-amber-700 ring-1 ring-amber-100">{(item.confidence * 100).toFixed(1)}%</span>
+                <span className="text-xs text-slate-400">{item.prediction_id}</span>
+              </div>
             </div>
 
             <div className="flex items-center gap-2">
               <select
                 value={labels[item.prediction_id] || item.predicted_class}
-                onChange={(e) =>
-                  setLabels((prev) => ({ ...prev, [item.prediction_id]: e.target.value }))
-                }
-                className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+                onChange={(e) => setLabels((prev) => ({ ...prev, [item.prediction_id]: e.target.value }))}
+                className="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-sm outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100"
               >
                 {CLASSES.map((c) => (
-                  <option key={c} value={c}>
-                    {c} — {CLASS_NAMES[c]}
-                  </option>
+                  <option key={c} value={c}>{c} — {CLASS_NAMES[c]}</option>
                 ))}
               </select>
-              <button
-                onClick={() => confirm(item)}
-                className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
-              >
+              <button onClick={() => confirm(item)} className="btn-grad px-4 py-2 text-sm">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="h-4 w-4"><path d="M20 6 9 17l-5-5" /></svg>
                 Xác nhận
               </button>
             </div>

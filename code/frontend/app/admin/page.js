@@ -100,37 +100,37 @@ export default function Admin() {
 
   if (!authed) {
     return (
-      <main className="mx-auto max-w-md px-4 py-12">
-        <h1 className="mb-4 text-2xl font-bold text-slate-900">Admin</h1>
-        <p className="mb-3 text-sm text-slate-500">Nhập admin token để truy cập control plane.</p>
-        <input
-          type="password"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          placeholder="X-Admin-Token"
-          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-        />
-        <button
-          onClick={saveToken}
-          className="mt-3 w-full rounded-lg bg-slate-900 px-4 py-2 font-medium text-white hover:bg-slate-700"
-        >
-          Vào
-        </button>
-        {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+      <main className="mx-auto max-w-md px-4 py-16">
+        <div className="glass-card p-7 animate-fade-up">
+          <span className="mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 text-white">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-6 w-6"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
+          </span>
+          <h1 className="text-2xl font-extrabold text-slate-900">Admin <span className="gradient-text">Control Plane</span></h1>
+          <p className="mb-4 mt-1 text-sm text-slate-500">Nhập admin token để truy cập.</p>
+          <input
+            type="password"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            placeholder="X-Admin-Token"
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100"
+          />
+          <button onClick={saveToken} className="btn-grad mt-3 w-full py-2.5">Vào</button>
+          {error && <p className="mt-3 text-sm text-rose-600">{error}</p>}
+        </div>
       </main>
     )
   }
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-8">
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">Admin — Control Plane</h1>
+    <main className="mx-auto max-w-6xl px-4 py-10">
+      <div className="mb-6 flex items-center justify-between animate-fade-up">
+        <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">Admin <span className="gradient-text">Control Plane</span></h1>
         <button
           onClick={() => {
             localStorage.removeItem("adminToken")
             setAuthed(false)
           }}
-          className="text-sm text-slate-500 hover:text-slate-900"
+          className="btn-soft text-sm"
         >
           Đăng xuất
         </button>
@@ -147,12 +147,12 @@ export default function Admin() {
         </div>
       )}
 
-      <section className="mb-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="glass-card mb-8 p-5">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-semibold text-slate-900">Model Registry</h2>
           <button
             onClick={() => action("seed-models")}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100"
+            className="btn-soft text-sm"
           >
             Seed models
           </button>
@@ -196,19 +196,19 @@ export default function Admin() {
         </table>
       </section>
 
-      <section className="mb-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="glass-card mb-8 p-5">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-semibold text-slate-900">Promote Gate & Retrain</h2>
           <div className="flex gap-2">
             <button
               onClick={() => action("reload-model")}
-              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100"
+              className="btn-soft text-sm"
             >
               Reload model
             </button>
             <button
               onClick={() => action("retrain")}
-              className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
+              className="btn-grad px-3 py-1.5 text-sm"
             >
               Retrain Now
             </button>
@@ -252,12 +252,12 @@ export default function Admin() {
         )}
       </section>
 
-      <section className="mb-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="glass-card mb-8 p-5">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-semibold text-slate-900">Tín hiệu trigger (S1–S4)</h2>
           <button
             onClick={loadAll}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100"
+            className="btn-soft text-sm"
           >
             Làm mới
           </button>
@@ -324,7 +324,7 @@ export default function Admin() {
         )}
       </section>
 
-      <section className="mb-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="glass-card mb-8 p-5">
         <h2 className="mb-3 font-semibold text-slate-900">Lịch sử retrain</h2>
         {runs.length === 0 ? (
           <p className="text-sm text-slate-500">Chưa có lần retrain nào.</p>
@@ -360,12 +360,12 @@ export default function Admin() {
         )}
       </section>
 
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="glass-card p-5">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-semibold text-slate-900">Tham số retrain (config)</h2>
           <button
             onClick={saveConfig}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-100"
+            className="btn-soft text-sm"
           >
             Lưu config
           </button>
