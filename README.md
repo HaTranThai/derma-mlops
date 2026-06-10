@@ -10,7 +10,7 @@ Hệ thống MLOps phân loại tổn thương da từ ảnh dermoscopy (HAM1000
 - ✅ **Phase 3** — Monitoring: Prometheus + Grafana + drift detection + review queue + scripts streaming
 - ✅ **Phase 4** — Kafka (KRaft): `/predict` bắn event `prediction-events` → **2 consumer khác group (fan-out)**: `prediction-logger` ghi DB async, `drift-monitor` cảnh báo drift real-time. Có fallback ghi thẳng khi Kafka down
 - ✅ **Phase 5** — MLflow registry (backend **PostgreSQL**) + **Prefect orchestration (server + worker)** + retraining flow + promote gate + trang Admin (control plane) + **DVC** (version model artifact + subset ảnh train → MinIO remote `dvc-store`; version full HAM10000 chạy ở môi trường có dữ liệu).
-- 🔶 **Phase 6** — Test (pytest, 17 test: gate/drift/config/PSI) + CI (GitHub Actions) — *cơ bản; chưa có integration/coverage cao*
+- ✅ **Phase 6** — Test (pytest **34 test**: unit logic gate/drift/config/PSI + 4 tín hiệu trigger + kafka producer + **integration API** qua TestClient) + **coverage** (pytest-cov, ~29%, floor 25%) + CI (GitHub Actions). *e2e full-stack + module inference (torch) chưa phủ — cần môi trường có stack.*
 
 > **Hardening đã làm thêm:** MLflow backend chuyển **SQLite → PostgreSQL** (bỏ SPOF); monitoring thêm **drift thống kê PSI** (`population_drift_psi`) bên cạnh heuristic chất lượng ảnh; **secrets externalize** ra `code/.env` (xem `.env.example` + [docs/SECURITY.md](docs/SECURITY.md)).
 
@@ -114,7 +114,12 @@ docker compose run --rm --no-deps -v "$PWD/backend:/test" -w /test api \
 # Hoặc local (cài requirements-dev.txt)
 cd code/backend && pip install -r requirements-dev.txt && pytest
 ```
-17 unit test: promote gate · drift scoring · config schema · population drift (PSI). CI tự chạy qua `.github/workflows/ci.yml` (backend pytest + frontend build).
+**34 test** + coverage (pytest-cov):
+- **Unit logic**: promote gate · drift scoring · config schema · population drift (PSI) · 4 tín hiệu trigger S1–S3 + cooldown · kafka producer (mock).
+- **Integration (TestClient)**: `/health`, `/reviews/queue`, `/monitoring/stats`, `POST /reviews` (validate) — mock repo, không cần DB/torch.
+- Coverage ~29% (floor 25% trong `pytest.ini`); module inference torch (`model`/`gradcam`/`trainer`) + glue (`storage`/`consumer`/`flows`) phủ 0% (cần e2e full-stack).
+
+CI tự chạy qua `.github/workflows/ci.yml` (backend pytest+coverage + frontend build).
 
 > **CI có / CD chưa:** CI (test + build mỗi push/PR) đã hoạt động — đã verify pass ở môi trường sạch (`python:3.11`, `node:20`). **CD (deploy tự động) = hướng phát triển** (sẽ thêm job build+push image ghcr.io / deploy SSH lên VPS sau).
 

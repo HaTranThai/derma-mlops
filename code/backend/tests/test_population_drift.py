@@ -1,4 +1,17 @@
-from app.repositories.monitoring_repository import _psi, _psi_level
+from app.repositories.monitoring_repository import _proportions, _psi, _psi_level
+
+
+def test_proportions_normalize_to_one():
+    rows = [{"predicted_class": "nv", "count": 7}, {"predicted_class": "mel", "count": 3}]
+    props = _proportions(rows, {"nv", "mel"})
+    assert abs(props["nv"] - 0.7) < 1e-9
+    assert abs(props["mel"] - 0.3) < 1e-9
+
+
+def test_proportions_missing_class_is_zero():
+    rows = [{"predicted_class": "nv", "count": 10}]
+    props = _proportions(rows, {"nv", "mel"})
+    assert props["mel"] == 0.0
 
 
 def test_identical_distributions_zero_psi():
