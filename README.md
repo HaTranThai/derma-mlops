@@ -1,6 +1,6 @@
 # Skin Lesion MLOps
 
-Hệ thống MLOps phân loại tổn thương da từ ảnh dermoscopy (HAM10000). Kế hoạch chi tiết: [docs/plan.md](docs/plan.md).
+Hệ thống MLOps phân loại tổn thương da từ ảnh dermoscopy (HAM10000). Kế hoạch chi tiết: [docs/plan.md](docs/plan.md) · Kiến trúc: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Trạng thái
 
@@ -153,7 +153,7 @@ headloader/
 │   ├── scripts/                # simulate_stream.py, create_drift_data.py
 │   ├── .env.example            # mẫu secrets (code/.env gitignored)
 │   └── docker-compose.yml      # 12 service
-├── docs/                       # plan.md, đề cương, SECURITY.md, giai-thich-he-thong-mlops.md, performance/
+├── docs/                       # plan.md, ARCHITECTURE.md, đề cương, SECURITY.md, giai-thich-he-thong-mlops.md, performance/
 ├── notebooks/                  # 01_train_models.ipynb (+ _build_notebook.py)
 ├── tests/performance/          # k6 load test (read-load.js, predict-load.js)
 ├── data/                       # subset.dvc (DVC pointer); ảnh subset gitignored
