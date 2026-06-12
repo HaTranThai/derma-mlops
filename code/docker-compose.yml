@@ -6,11 +6,11 @@ services:
       - "8200:8000"
     volumes:
       - ./backend/app:/app/app
-      - ../models:/app/models
-      - ../data:/app/data:ro
+      - ../data:/app/data:rw
+      - ../.dvc:/app/.dvc:rw
     environment:
-      - MODEL_PATH=models/production/model_efficientnet_b0_v2.pt
       - DATASET_PATH=/app/data/subset
+      - DATASET_VAL_PATH=/app/data/val
       - LOW_CONFIDENCE_THRESHOLD=0.5
       - DATABASE_URL=postgresql://skin:${POSTGRES_PASSWORD:-skin_pass}@postgres:5432/skinlesion
       - MINIO_ENDPOINT=minio:9000
@@ -124,6 +124,12 @@ services:
       - MLFLOW_TRACKING_URI=http://mlflow:5000
       - MLFLOW_MODEL_NAME=skin_lesion_classifier
       - DATASET_PATH=/app/data/subset
+      - DATASET_VAL_PATH=/app/data/val
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_ROOT_PASSWORD:-minioadmin}
+      - MINIO_SECURE=false
+      - MINIO_BUCKET_MODELS=models
     depends_on:
       - prefect-server
       - postgres
@@ -196,5 +202,4 @@ volumes:
   pg_data:
   minio_data:
   grafana_data:
-  mlflow_data:
   prefect_data:
