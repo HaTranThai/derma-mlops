@@ -20,16 +20,6 @@ logger = logging.getLogger("api")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
-        model_service = ModelService()
-        app.state.model_service = model_service
-        app.state.gradcam = GradCAM(model_service.model, model_service.target_layer)
-        logger.info("Model loaded: %s", model_service.model_version)
-    except FileNotFoundError:
-        app.state.model_service = None
-        app.state.gradcam = None
-        logger.warning("Chua tim thay model. Dat file .pt vao models/production/.")
-
-    try:
         pool.open()
     except Exception as err:
         logger.warning("Khong mo duoc connection pool: %s", err)
@@ -44,6 +34,21 @@ async def lifespan(app: FastAPI):
         except Exception as err:
             logger.warning("Khoi tao DB/MinIO lan %s that bai: %s", attempt, err)
             time.sleep(3)
+
+    app.state.model_service = None
+    app.state.gradcam = None
+    for attempt in range(1, 6):
+        try:
+            model_service = ModelService()
+            app.state.model_service = model_service
+            app.state.gradcam = GradCAM(model_service.model, model_service.target_layer)
+            logger.info("Model loaded tu MinIO: %s (%s)", model_service.model_version, model_service.source)
+            break
+        except Exception as err:
+            logger.warning("Nap model tu MinIO lan %s that bai: %s", attempt, err)
+            time.sleep(3)
+    if app.state.model_service is None:
+        logger.warning("Chua co model Production trong MinIO (models/production/model.pt).")
 
     trigger_task = asyncio.create_task(auto_trigger.loop())
 

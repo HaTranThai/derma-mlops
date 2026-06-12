@@ -2,12 +2,14 @@ import os
 
 
 class Settings:
-    MODEL_PATH = os.getenv("MODEL_PATH", "models/production/model_efficientnet_b0_v2.pt")
+    MODEL_PATH = os.getenv("MODEL_PATH", "models/production/production.pt")
     LOW_CONFIDENCE_THRESHOLD = float(os.getenv("LOW_CONFIDENCE_THRESHOLD", "0.5"))
     IMAGE_SIZE = int(os.getenv("IMAGE_SIZE", "224"))
     TOP_K = int(os.getenv("TOP_K", "3"))
+    MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(15 * 1024 * 1024)))
 
     DATASET_PATH = os.getenv("DATASET_PATH", "data/subset")
+    DATASET_VAL_PATH = os.getenv("DATASET_VAL_PATH", "data/val")
 
     DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://skin:skin_pass@localhost:5432/skinlesion")
 
@@ -16,6 +18,7 @@ class Settings:
     MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin")
     MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
     MINIO_BUCKET_PREDICTIONS = os.getenv("MINIO_BUCKET_PREDICTIONS", "predictions")
+    MINIO_BUCKET_MODELS = os.getenv("MINIO_BUCKET_MODELS", "models")
     MINIO_REGION = os.getenv("MINIO_REGION", "us-east-1")
 
     MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")

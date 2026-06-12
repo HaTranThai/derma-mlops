@@ -4,7 +4,7 @@ from minio import Minio
 
 from app.core.config import settings
 
-BUCKETS = ["predictions", "mlflow", "dvc-store"]
+BUCKETS = ["predictions", "mlflow", "dvc-store", "models"]
 
 
 class StorageService:

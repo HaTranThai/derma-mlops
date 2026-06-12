@@ -41,10 +41,20 @@ def get_target_layer(model, name):
 
 
 class ModelService:
-    def __init__(self, model_path=None):
+    def __init__(self, model_path=None, model_key=None):
+        from app.services import model_store
+
         self.device = torch.device("cpu")
-        self.model_path = model_path or settings.MODEL_PATH
-        checkpoint = torch.load(self.model_path, map_location=self.device)
+        if model_path:
+            self.source = model_path
+            checkpoint = torch.load(model_path, map_location=self.device)
+        elif model_key:
+            self.source = f"{model_store.BUCKET}/{model_key}"
+            checkpoint = model_store.load_checkpoint(model_key)
+        else:
+            self.source = f"{model_store.BUCKET}/{model_store.PROD_KEY}"
+            checkpoint = model_store.load_production_checkpoint()
+        self.model_path = self.source
         self.classes = checkpoint["classes"]
         self.model_name = checkpoint["model_name"]
         self.version_tag = checkpoint["version"]
