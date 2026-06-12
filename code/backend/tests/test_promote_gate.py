@@ -32,3 +32,17 @@ def test_checks_cover_all_metrics():
     cand = {"macro_f1": 0.75, "melanoma_recall": 0.62, "accuracy": 0.85}
     metrics = {c["metric"] for c in evaluate_gate(PROD, cand, PROMOTE_RULES)["checks"]}
     assert metrics == {"macro_f1", "melanoma_recall", "accuracy"}
+
+
+def test_melanoma_absolute_floor_rejects_below_min():
+    prod = {"macro_f1": 0.30, "melanoma_recall": 0.35, "accuracy": 0.60}
+    cand = {"macro_f1": 0.45, "melanoma_recall": 0.38, "accuracy": 0.62}
+    result = evaluate_gate(prod, cand, PROMOTE_RULES)
+    assert result["passed"] is False
+    assert any(c.get("rule") == "min" and not c["passed"] for c in result["checks"])
+
+
+def test_macro_f1_margin_rejects_noise_improvement():
+    prod = {"macro_f1": 0.50, "melanoma_recall": 0.50, "accuracy": 0.60}
+    cand = {"macro_f1": 0.502, "melanoma_recall": 0.51, "accuracy": 0.60}
+    assert evaluate_gate(prod, cand, PROMOTE_RULES)["passed"] is False

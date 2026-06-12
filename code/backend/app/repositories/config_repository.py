@@ -21,6 +21,9 @@ DEFAULT_RETRAIN_CONFIG = {
         "cooldown_minutes": 2,
     },
     "smoke": {
+        "arch": "efficientnet_b0",
+        "archs": None,
+        "subset_per_class": None,
         "epochs": 3,
         "batch_size": 16,
         "learning_rate": 0.001,
@@ -30,8 +33,9 @@ DEFAULT_RETRAIN_CONFIG = {
         "version_tag": "smoke",
     },
     "promote_rules": [
-        {"metric": "macro_f1", "rule": "not_worse"},
+        {"metric": "macro_f1", "rule": "not_worse", "margin": 0.005},
         {"metric": "melanoma_recall", "rule": "not_worse"},
+        {"metric": "melanoma_recall", "rule": "min", "min": 0.40},
         {"metric": "accuracy", "rule": "tolerance", "max_drop": 0.02},
     ],
 }

@@ -36,10 +36,10 @@ def promote(version):
     _with_retry(lambda: mlflow_service.promote_version(version))
 
 
-def train_candidate():
+def train_candidate(trigger_reason="manual"):
     from app.services import trainer
 
-    return _with_retry(lambda: trainer.train_smoke(config_repository.get_config()), retries=1)
+    return _with_retry(lambda: trainer.train_smoke(config_repository.get_config(), trigger_reason), retries=1)
 
 
 def run(trigger_reason="manual"):
@@ -50,10 +50,24 @@ def run(trigger_reason="manual"):
 
     trained = None
     if mode == "smoke":
-        trained = train_candidate()
-        logger.warning("Smoke da train candidate moi: %s", trained)
+        trained = train_candidate(trigger_reason)
+        candidate = trained["best"]
+        production = mlflow_service.get_production()
+        logger.warning("Smoke: train %s kien truc, best=%s (macro_f1=%.3f)",
+                       len(trained["candidates"]), candidate.get("arch"), candidate["metrics"]["macro_f1"])
+    else:
+        production, candidate = select_models()
 
-    production, candidate = select_models()
+    if production is not None:
+        try:
+            from app.services import model_store, trainer
+            prod_ck = model_store.load_production_checkpoint()
+            prod_val = trainer.evaluate_checkpoint_on_val(prod_ck)
+            if prod_val:
+                production = {**production, "metrics": prod_val, "metrics_source": "system_val"}
+                logger.warning("Gate cung nguon: Production re-eval tren data/val = %s", prod_val)
+        except Exception as err:
+            logger.warning("Re-eval Production that bai, dung metric registry: %s", err)
 
     if production is None or candidate is None:
         result = {
