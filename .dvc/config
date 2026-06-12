@@ -3,3 +3,5 @@
 ['remote "minio"']
     url = s3://dvc-store
     endpointurl = http://localhost:9000
+['remote "minio_internal"']
+    url = s3://dvc-store

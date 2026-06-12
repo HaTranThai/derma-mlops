@@ -101,3 +101,31 @@ def online_accuracy(window):
     with pool.connection() as conn:
         row = conn.execute(ONLINE_ACCURACY_SQL, {"window": window}).fetchone()
     return {"count": row["total"], "accuracy": float(row["accuracy"])}
+
+
+UNINGESTED_SQL = """
+SELECT r.prediction_id, r.review_label, p.image_key
+FROM reviews r
+JOIN predictions p ON p.prediction_id = r.prediction_id
+WHERE r.review_status = 'reviewed'
+  AND r.review_label IS NOT NULL
+  AND r.used_in_data_version IS NULL
+ORDER BY r.reviewed_at ASC NULLS LAST
+"""
+
+MARK_INGESTED_SQL = """
+UPDATE reviews SET used_in_data_version = %(dv)s
+WHERE prediction_id = ANY(%(ids)s)
+"""
+
+
+def list_uningested_reviewed():
+    with pool.connection() as conn:
+        return conn.execute(UNINGESTED_SQL).fetchall()
+
+
+def mark_ingested(prediction_ids, data_version):
+    if not prediction_ids:
+        return
+    with pool.connection() as conn:
+        conn.execute(MARK_INGESTED_SQL, {"dv": data_version, "ids": list(prediction_ids)})

@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS predictions (
     top_k              JSONB NOT NULL,
     latency_ms         INT,
     model_version      VARCHAR(64) NOT NULL,
-    data_version       VARCHAR(32),
+    data_version       VARCHAR(64),
     is_low_confidence  BOOLEAN NOT NULL DEFAULT false,
     is_drift_suspected BOOLEAN NOT NULL DEFAULT false,
     brightness_score   REAL,
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS reviews (
     reviewer             VARCHAR(64),
     reviewed_at          TIMESTAMPTZ,
     created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
-    used_in_data_version VARCHAR(32)
+    used_in_data_version VARCHAR(64)
 );
 
 CREATE INDEX IF NOT EXISTS idx_review_status ON reviews (review_status);
@@ -50,8 +50,8 @@ CREATE TABLE IF NOT EXISTS retraining_runs (
     trigger_reason VARCHAR(16) NOT NULL,
     mode           VARCHAR(16) NOT NULL,
     reviewed_count INT,
-    production_tag VARCHAR(16),
-    candidate_tag  VARCHAR(16),
+    production_tag VARCHAR(64),
+    candidate_tag  VARCHAR(64),
     gate_passed    BOOLEAN,
     promoted       BOOLEAN,
     detail         JSONB
