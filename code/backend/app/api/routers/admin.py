@@ -2,7 +2,7 @@ from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
 
 from app.core.config import settings
 from app.repositories import config_repository, run_repository
-from app.services import auto_trigger, mlflow_service, prefect_trigger, retrain_service
+from app.services import auto_trigger, eval_service, ingest_service, mlflow_service, prefect_trigger, retrain_service
 from app.services.gradcam_service import GradCAM
 from app.services.model_service import ModelService
 
@@ -34,6 +34,11 @@ def update_config(value: dict = Body(...)):
     return config_repository.set_config(value)
 
 
+@router.post("/ingest-reviews", dependencies=[Depends(require_admin)])
+def ingest_reviews():
+    return ingest_service.ingest_reviews()
+
+
 @router.post("/retrain", dependencies=[Depends(require_admin)])
 def retrain():
     try:
@@ -48,6 +53,24 @@ def retrain():
 def promote(version: int):
     mlflow_service.promote_version(version)
     return {"status": "ok", "promoted_version": version}
+
+
+@router.post("/eval-production-val", dependencies=[Depends(require_admin)])
+def eval_production_val(request: Request):
+    model_service = request.app.state.model_service
+    if model_service is None:
+        raise HTTPException(status_code=503, detail="Model chưa được nạp")
+    production = mlflow_service.get_production()
+    if production is None:
+        raise HTTPException(status_code=404, detail="Chưa có model Production")
+    metrics = eval_service.evaluate_on_val(model_service, settings.DATASET_VAL_PATH)
+    mlflow_service.update_run_metrics(production["version"], metrics)
+    return {
+        "version": production["version"],
+        "tag": production["tag"],
+        "model_version": model_service.model_version,
+        "val_metrics": metrics,
+    }
 
 
 @router.get("/gate", dependencies=[Depends(require_admin)])
@@ -73,9 +96,13 @@ def list_runs():
 
 
 @router.post("/reload-model", dependencies=[Depends(require_admin)])
-def reload_model(request: Request, model_path: str = Body(default=None, embed=True)):
+def reload_model(
+    request: Request,
+    model_path: str = Body(default=None, embed=True),
+    model_key: str = Body(default=None, embed=True),
+):
     try:
-        model_service = ModelService(model_path) if model_path else ModelService()
+        model_service = ModelService(model_path=model_path, model_key=model_key)
     except Exception as err:
         raise HTTPException(status_code=400, detail=f"Không nạp được model: {err}")
     request.app.state.model_service = model_service

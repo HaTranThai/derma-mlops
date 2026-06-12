@@ -13,7 +13,7 @@ RETURNING id, triggered_at
 
 LIST_SQL = """
 SELECT id, triggered_at, trigger_reason, mode, reviewed_count,
-       production_tag, candidate_tag, gate_passed, promoted
+       production_tag, candidate_tag, gate_passed, promoted, detail
 FROM retraining_runs
 ORDER BY triggered_at DESC
 LIMIT %(limit)s

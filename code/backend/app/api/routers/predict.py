@@ -29,6 +29,8 @@ async def predict(request: Request, file: UploadFile = File(...), source: str = 
         raise HTTPException(status_code=400, detail="File phải là ảnh")
 
     raw = await file.read()
+    if len(raw) > settings.MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Ảnh quá lớn")
     try:
         image = model_service.load_image(raw)
     except Exception:
