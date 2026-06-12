@@ -467,17 +467,17 @@ flowchart TD
     L -->|Drift| M
     L -->|Latency/Error cao| N[Cảnh báo hệ thống]
 
-    M --> O[Bác sĩ xác nhận nhãn / Giả lập nhãn]
-    O --> P[Data mới đã gán nhãn]
+    M --> O[Bác sĩ xác nhận nhãn]
+    O --> P[Ingest: leak-guard md5 vs val/test + ghi data/subset]
 
-    P --> Q[Data Versioning - DVC]
-    Q --> R[Training Pipeline]
+    P --> Q[Data Versioning - DVC push MinIO dvc-store]
+    Q --> R[Training - Prefect worker, warm-start từ Production]
     R --> S[MLflow Tracking]
-    S --> T[Model Registry]
+    S --> T[Model Registry + Promote Gate]
 
-    T --> U{Model mới tốt hơn?}
-    U -->|Có| V[Promote Production Model]
-    U -->|Không| W[Giữ model cũ]
+    T --> U{Tốt hơn Production trên data/val?}
+    U -->|Đạt gate| V[Promote → MinIO bucket models]
+    U -->|Không đạt| W[Giữ model cũ]
 
     V --> C
 ```
@@ -509,20 +509,23 @@ sequenceDiagram
     participant U as Người dùng
     participant FE as Web App (Next.js)
     participant API as FastAPI
-    participant M as Model Service
-    participant L as Logger
-    participant DB as Log Database
-    participant G as Grafana Dashboard
+    participant M as Model (RAM, tải từ MinIO)
+    participant S as MinIO
+    participant K as Kafka
+    participant C as Consumer
+    participant DB as PostgreSQL
 
     U->>FE: Upload ảnh da
-    FE->>API: Gửi ảnh qua /predict
-    API->>M: Tiền xử lý + inference
-    M-->>API: Class, confidence, top-k, Grad-CAM
-    API->>L: Lưu prediction log
-    L->>DB: Ghi log
-    DB->>G: Cập nhật dashboard
-    API-->>FE: Trả kết quả
+    FE->>API: POST /predict (proxy)
+    API->>M: Tiền xử lý + inference + Grad-CAM + drift
+    API->>S: Lưu ảnh vào bucket "predictions"
+    API->>K: Publish event "prediction-events"
+    API-->>FE: Trả NGAY class + confidence + top-k + Grad-CAM
     FE-->>U: Hiển thị kết quả + Grad-CAM
+    K-->>C: fan-out (prediction-logger + drift-monitor)
+    C->>DB: Ghi prediction (async)
+    Note over API,DB: Kafka down → API ghi thẳng DB (fallback)
+    Note over API: Prometheus scrape /metrics → Grafana (không phải DB đẩy)
 ```
 
 ---
@@ -550,19 +553,20 @@ flowchart TD
     end
 
     subgraph MonitoringLayer[Monitoring Layer]
-        J[Prediction Logs]
-        K[SQLite / PostgreSQL]
-        L[Grafana Dashboard]
+        J[Prediction Logs - Kafka/Consumer]
+        K[PostgreSQL]
+        L[Prometheus + Grafana]
         M[Drift / Low Confidence Alert]
     end
 
     subgraph MLOpsLayer[MLOps Pipeline]
-        N[HAM10000 / ISIC Dataset]
-        O[DVC Data Versioning]
-        P[Training Pipeline]
+        N[HAM10000 Dataset - data/subset]
+        O[DVC Data Versioning - MinIO dvc-store]
+        P[Training - Prefect worker, warm-start]
         Q[MLflow Tracking]
-        R[Model Registry]
-        S[Production Model]
+        R[Model Registry + Promote Gate]
+        T[MinIO bucket models - production/model.pt]
+        S[Production Model - RAM]
     end
 
     A --> B
@@ -585,8 +589,10 @@ flowchart TD
     O --> P
     P --> Q
     Q --> R
-    R --> S
+    R --> T
+    T --> S
     S --> E
+    S -.warm-start.-> P
 ```
 
 ---
@@ -605,7 +611,7 @@ Toàn bộ hệ thống chạy bằng một `docker-compose.yml`, gồm các ser
 | `alert-consumer` | Kafka consumer (group `drift-monitor`) — cảnh báo drift real-time | — |
 | `kafka` | Message broker (KRaft, không cần Zookeeper) — topic `prediction-events` | — |
 | `postgres` | prediction/review/config/runs **+ MLflow backend** | 5434 |
-| `minio` | Object storage (ảnh + DVC remote + MLflow artifacts) | 9000 / 9001 |
+| `minio` | Object storage 4 bucket: `models` (serving) + `predictions` (ảnh) + `mlflow` (artifacts) + `dvc-store` (DVC remote data) | 9000 / 9001 |
 | `mlflow` | Tracking server + Model Registry (backend Postgres) | 5000 |
 | `prefect-server` | Orchestration server (UI + API + cron S4) | 4200 |
 | `prefect-worker` | Chạy retraining flow (env cô lập) | — |

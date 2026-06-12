@@ -9,20 +9,26 @@ Hệ thống MLOps phân loại tổn thương da từ ảnh dermoscopy (HAM1000
 - ✅ **Phase 2** — Lưu trữ: PostgreSQL (prediction log) + MinIO (ảnh) + trang Lịch sử
 - ✅ **Phase 3** — Monitoring: Prometheus + Grafana + drift detection + review queue + scripts streaming
 - ✅ **Phase 4** — Kafka (KRaft): `/predict` bắn event `prediction-events` → **2 consumer khác group (fan-out)**: `prediction-logger` ghi DB async, `drift-monitor` cảnh báo drift real-time. Có fallback ghi thẳng khi Kafka down
-- ✅ **Phase 5** — MLflow registry (backend **PostgreSQL**) + **Prefect orchestration (server + worker)** + retraining flow + promote gate + trang Admin (control plane) + **DVC** (version model artifact + subset ảnh train → MinIO remote `dvc-store`; version full HAM10000 chạy ở môi trường có dữ liệu).
-- ✅ **Phase 6** — Test (pytest **34 test**: unit logic gate/drift/config/PSI + 4 tín hiệu trigger + kafka producer + **integration API** qua TestClient) + **coverage** (pytest-cov, ~29%, floor 25%) + CI (GitHub Actions). *e2e full-stack + module inference (torch) chưa phủ — cần môi trường có stack.*
+- ✅ **Phase 5** — MLflow registry (backend **PostgreSQL**) + **Prefect orchestration (server + worker)** + retraining flow + promote gate + trang Admin (control plane) + **DVC** (version **data** `data/subset` → MinIO remote `dvc-store`).
+- ✅ **Phase 6** — Test (pytest: unit logic gate/drift/config/PSI + 4 tín hiệu trigger + kafka producer + **integration API** qua TestClient) + **coverage** (pytest-cov, floor 25%) + CI (GitHub Actions). *e2e full-stack + module inference (torch) chưa phủ — cần môi trường có stack.*
+- ✅ **Phase 7** — **Serving model từ MinIO** (bucket `models`, không còn file local) + **active-learning ingest** (review→`data/subset`+dvc, có leak-guard md5 vs val/test) + **retrain warm-start** từ Production + luôn gom ảnh review + **gate siết**: re-eval Production trên `data/val` (so cùng nguồn) + sàn `mel_recall ≥ 0.40` + biên `macro_f1 0.005`.
 
-> **Hardening đã làm thêm:** MLflow backend chuyển **SQLite → PostgreSQL** (bỏ SPOF); monitoring thêm **drift thống kê PSI** (`population_drift_psi`) bên cạnh heuristic chất lượng ảnh; **secrets externalize** ra `code/.env` (xem `.env.example` + [docs/SECURITY.md](docs/SECURITY.md)).
+> **Hardening đã làm thêm:** MLflow backend chuyển **SQLite → PostgreSQL** (bỏ SPOF); monitoring thêm **drift thống kê PSI** (`population_drift_psi`) bên cạnh heuristic chất lượng ảnh; **secrets externalize** ra `code/.env` (xem `.env.example` + [docs/SECURITY.md](docs/SECURITY.md)); giới hạn cỡ ảnh upload (`MAX_UPLOAD_BYTES`).
 
-## Chạy (Phase 1)
+## Chạy
 
-1. Tải model `model_efficientnet_b0_v2.pt` từ Kaggle về `models/production/` (xem `models/production/README.md`).
-2. Build & chạy (chạy từ thư mục `code/`):
+1. Build & chạy (từ thư mục `code/`):
 
 ```bash
 cd code
 docker compose up --build
 ```
+
+2. **Nạp model Production** (hệ thống serving model **từ MinIO** bucket `models`, không đọc file local):
+   - Train bằng [notebooks/01_train_models.ipynb](notebooks/01_train_models.ipynb) (Kaggle/GPU) → ra `production.pt` (đúng format checkpoint).
+   - Đăng ký vào MLflow → tự push lên MinIO `models/production/model.pt` + set Production (qua script đăng ký, xem `docs/giai-thich-he-thong-mlops.md`).
+   - Hoặc dùng `POST /admin/seed-models` để seed model demo (metric mẫu) khi mới dựng.
+   - API tự tải model Production từ MinIO lúc startup; đổi model → `POST /admin/reload-model`.
 
 3. Truy cập:
    - **Web (Next.js — giao diện chính)**: http://localhost:3100 (Dự đoán · Lịch sử · Cần review · Giám sát)
@@ -76,12 +82,14 @@ docker compose up --build
 | POST | `/admin/seed-models` | Đăng ký v1/v2 vào MLflow registry (v1 Production, v2 Staging) |
 | GET | `/admin/models` | Danh sách model version + stage + metrics |
 | GET | `/admin/gate` | Preview promote gate (production vs candidate) |
-| POST | `/admin/retrain` | Chạy retraining flow (gate → promote) |
-| POST | `/admin/promote/{version}` | Promote 1 version thủ công |
-| GET / PUT | `/admin/config` | Xem / sửa tham số retrain (gồm `auto_trigger_enabled`) |
-| POST | `/admin/reload-model` | Hot-reload model đang phục vụ (không restart) |
+| POST | `/admin/retrain` | Chạy retraining flow (warm-start → re-eval → gate → promote) |
+| POST | `/admin/promote/{version}` | Promote 1 version thủ công (sync model → MinIO `models`) |
+| POST | `/admin/ingest-reviews` | **Active-learning**: đưa ảnh đã review vào `data/subset` + `dvc add/push` (leak-guard) |
+| POST | `/admin/eval-production-val` | Chấm model Production trên `data/val` (cập nhật metric registry) |
+| GET / PUT | `/admin/config` | Xem / sửa tham số retrain (gồm `auto_trigger_enabled`, `promote_rules`) |
+| POST | `/admin/reload-model` | Hot-reload model từ MinIO (không restart); nhận `model_path`/`model_key` |
 | GET | `/admin/trigger-status` | Đánh giá live 4 tín hiệu trigger S1–S4 |
-| GET | `/admin/runs` | Lịch sử các lần retrain |
+| GET | `/admin/runs` | Lịch sử các lần retrain (kèm `detail` gate) |
 
 > **Auto-trigger (4 tín hiệu)** — 4 tín hiệu OR, chạy ở 2 nơi khác nhau:
 > - **S1/S2/S3 (event-driven)** — background loop trong **api** (bật bằng `auto_trigger_enabled`) đánh giá định kỳ: **S1** đủ review mới (`min_reviewed_images`), **S2** drift/confidence thấp (`drift_rate`/`low_confidence_rate`), **S3** hiệu năng online giảm (accuracy dự đoán vs nhãn bác sĩ < `perf_min_accuracy`) — kèm guard `cooldown_minutes`. Tín hiệu bật → gọi retrain qua Prefect.
@@ -89,19 +97,18 @@ docker compose up --build
 >
 > `trigger_reason` ghi rõ tín hiệu nào kích hoạt (vd `S1+S2+S3`, hoặc `S4` cho run theo lịch). Xem S1–S3 live bằng `/admin/trigger-status` hoặc panel "Tín hiệu trigger" trên trang Admin. Worker luôn thực thi gate+promote. Đây là retraining **event-driven + scheduled** (Level 2).
 
-## DVC (data/model versioning → MinIO)
+## DVC (data versioning → MinIO)
 
-DVC đã init tại repo, remote = MinIO bucket `dvc-store`. Dùng venv `.venv` (đã cài `dvc[s3]`):
+DVC version **DỮ LIỆU** `data/subset` (tập train), remote = MinIO bucket `dvc-store`. **Model KHÔNG đi qua DVC** (model nằm ở bucket `models` + `mlflow`). 2 remote: `minio` (host, `localhost:9000`) và `minio_internal` (container, `minio:9000`); `core.no_scm=true` để chạy không cần git.
 
 ```bash
-.venv/bin/dvc add models/production/model_efficientnet_b0_v2.pt   # version model artifact
-.venv/bin/dvc add data/subset                                     # version DỮ LIỆU (subset ảnh)
-.venv/bin/dvc push        # đẩy lên MinIO (bucket dvc-store)
-.venv/bin/dvc pull        # kéo về (tái lập)
-.venv/bin/dvc status -c   # so với remote
+# Trên host (.venv đã cài dvc[s3]):
+.venv/bin/dvc add data/subset    # version tập train (md5)
+.venv/bin/dvc push               # đẩy lên MinIO (bucket dvc-store)
+.venv/bin/dvc pull               # kéo về (tái lập trên máy khác)
 ```
 
-File `*.dvc` (con trỏ md5) được git track; binary (model + ảnh) lưu trên MinIO. Secret remote ở `.dvc/config.local` (gitignored). `data/subset` (40 ảnh/lớp, tập **train**) được DVC version và worker dùng cho **smoke retrain** (train thật). Version full HAM10000 dùng cùng cơ chế, chạy ở môi trường có toàn bộ dataset.
+File `data/subset.dvc` (con trỏ md5) được git track; ảnh lưu trên MinIO. Secret remote ở `.dvc/config.local` (gitignored). **Nút Admin "Đưa review vào tập train"** chạy `dvc add/push` **tự động ngay trong container api** (qua remote `minio_internal`) sau khi đưa ảnh review vào `data/subset` — đây là vòng active-learning. Worker đọc `data/subset` (mount) cho retrain; chỉnh `subset_per_class` trong config để train ít/full.
 
 ## Test
 
@@ -143,7 +150,7 @@ headloader/
 │   ├── backend/                # FastAPI service (api + consumer dùng chung image)
 │   │   ├── app/
 │   │   │   ├── api/            # main (lifespan), schemas, routers/ (health, predict, predictions, reviews, monitoring, admin)
-│   │   │   ├── services/       # model, gradcam, storage (MinIO), drift, mlflow, retrain, trainer, prefect_trigger, auto_trigger, kafka
+│   │   │   ├── services/       # model_service, model_store (MinIO models bucket), gradcam, storage, drift, mlflow, retrain, trainer, ingest, prefect_trigger, auto_trigger, kafka
 │   │   │   ├── repositories/   # prediction, review, monitoring, config, run (Postgres)
 │   │   │   ├── flows/          # Prefect: retraining_flow + serve (worker)
 │   │   │   ├── consumer/       # Kafka consumer: prediction_consumer, drift_alert_consumer
@@ -161,8 +168,8 @@ headloader/
 ├── docs/                       # plan.md, ARCHITECTURE.md, đề cương, SECURITY.md, giai-thich-he-thong-mlops.md, performance/
 ├── notebooks/                  # 01_train_models.ipynb (+ _build_notebook.py)
 ├── tests/performance/          # k6 load test (read-load.js, predict-load.js)
-├── data/                       # subset.dvc (DVC pointer); ảnh subset gitignored
-├── models/production/          # model .pt (gitignored, DVC-tracked)
+├── data/                       # subset.dvc/val.dvc/test.dvc (DVC pointer); ảnh gitignored
+├── models/                     # folder thả .pt để đăng ký (model thật lưu ở MinIO bucket "models", không ở đây)
 ├── .github/workflows/          # ci.yml (backend pytest + frontend build)
 └── README.md
 ```

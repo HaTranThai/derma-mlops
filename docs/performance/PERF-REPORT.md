@@ -7,7 +7,7 @@
 |---|---|
 | Môi trường | Local dev (Docker Compose), **CPU 16 nhân / 11GB RAM** (~6.8GB trống) |
 | GPU | **Không** (inference chạy CPU) |
-| Serving | FastAPI 1 uvicorn worker; model EfficientNet-B0 `.pt` nạp trong RAM |
+| Serving | FastAPI 1 uvicorn worker; model CNN (`.pt`) nạp trong RAM, tải từ MinIO bucket `models` (model là thành phần thay thế được) |
 | Công cụ | k6 (container `grafana/k6`), gọi `api:8000` trong network `code_default` |
 | Dataset | predictions đang có + ảnh upload lặp trong test |
 | Ngày đo | 2026-06-08 |

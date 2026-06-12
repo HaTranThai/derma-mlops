@@ -213,7 +213,7 @@ MLflow **không chạy gì cả** — nó **ghi nhận + quản trị**:
 ### 8.1. Dự đoán (predict)
 ```
 Browser → frontend(proxy) → api
-   api: model(.pt) → top-k + Grad-CAM; tính drift; upload ảnh → MinIO(predictions)
+   api: model (nạp từ MinIO bucket models) → top-k + Grad-CAM; tính drift; upload ảnh → MinIO(predictions)
    api → bắn event vào Kafka(prediction-events) → consumer ghi 1 dòng → Postgres (async)
         (Kafka down → api ghi thẳng Postgres, fallback)
    ảnh hiển thị: Browser → frontend → api → stream từ MinIO
@@ -224,10 +224,13 @@ Browser → frontend(proxy) → api
 Prefect (S1/S2/S3 từ api · hoặc S4 cron · hoặc Admin bấm)
    → prefect-worker chạy retraining_flow → retrain_service → trainer.py
        trainer ĐỌC ảnh từ /app/data/subset (mount của data/subset)
-       train EfficientNet-B0 thật (vài epoch CPU)
-       tính metric → lưu .pt + log MLflow + đăng ký version (Staging)
+       WARM-START từ Production + train nhiều kiến trúc thật (vài epoch CPU)
+       LUÔN gom ảnh review (pred_*.jpg) vào tập train
+       tính metric trên data/val → lưu .pt + log MLflow + đăng ký version (Staging)
        ghi data_version = hash DVC (đọc từ data/subset.dvc)
-   → promote gate so candidate vs Production → yếu thì TỪ CHỐI (giữ v2)
+   → RE-EVAL Production trên data/val (so cùng nguồn)
+   → gate: macro_f1(+biên 0.005) · mel_recall(not_worse + SÀN 0.40) · acc(±0.02)
+   → yếu thì TỪ CHỐI (giữ Production hiện tại)
 ```
 - **Train chạy ở container `prefect-worker`** (fallback: `api` nếu Prefect chết).
 - `trainer` đọc đường dẫn **trong container** `/app/data/subset` = bind mount của host `/home/bbsw/headloader/data/subset`.
@@ -246,13 +249,13 @@ Prefect (S1/S2/S3 từ api · hoặc S4 cron · hoặc Admin bấm)
 ## 9. FAQ — những câu đã hỏi
 
 **Hỏi: DVC dùng trong dự án này có tác dụng gì?**
-Version dữ liệu train (trụ cột data versioning), giữ git nhẹ (không nhét ảnh y tế vào git), liên kết "code↔data" trong 1 commit (tái lập), và data lineage cho retraining ("model nào sinh từ data version nào"). Lưu ý trung thực: full data thật ở Kaggle; DVC ở đây version subset nhỏ + model; phần model có trùng vai MLflow → giá trị riêng của DVC là **data**.
+Version dữ liệu train (trụ cột data versioning), giữ git nhẹ (không nhét ảnh y tế vào git), liên kết "code↔data" trong 1 commit (tái lập), và data lineage cho retraining ("model nào sinh từ data version nào"). Lưu ý: DVC chỉ version **dữ liệu** `data/subset` → bucket `dvc-store`; **model KHÔNG đi qua DVC** (model nằm ở bucket `models` + `mlflow`) → giá trị riêng của DVC là **data versioning**.
 
 **Hỏi: DVC liên quan Git thế nào?**
 Git giữ *cuống vé* (`.dvc`, text, có lịch sử); DVC giữ *file nặng* (blob theo hash). `git checkout` commit cũ → cuống vé cũ → `dvc checkout` → data cũ. Git cho data một dòng thời gian.
 
 **Hỏi: `dvc push` xong có tự train không?**
-KHÔNG. `dvc add/push` chỉ version + cất data. Train chỉ chạy bởi 4 tín hiệu (S1–S4) hoặc Admin bấm. DVC và trigger train **tách rời** (muốn "data mới → tự train" phải nối thêm).
+KHÔNG. `dvc add/push` chỉ version + cất data; train chạy bởi 4 tín hiệu (S1–S4) hoặc Admin bấm — vẫn tách rời. **Đã nối phần review→data**: nút Admin **"Đưa review vào tập train"** (`/admin/ingest-reviews`) tự ghi ảnh review vào `data/subset` rồi `dvc add/push` (có leak-guard md5 vs val/test). Còn "data mới → tự kích train" thì để S1 lo (đủ review → retrain).
 
 **Hỏi: Đang ở version data nào thì train dùng version đó chứ?**
 ĐÚNG. `trainer` đọc `data/subset` trên đĩa = đúng version đang checkout, không thể khác. Việc đã bổ sung: **ghi lại** hash version đó vào MLflow/checkpoint/run (`data_version`) để truy ngược.
@@ -264,7 +267,7 @@ KHÔNG. Kéo data từ MinIO là việc của **DVC** (`dvc pull/checkout`). Pre
 **`prefect-worker`** (đường thường). Fallback: `api`. KHÔNG chạy trong `mlflow`/`prefect-server`.
 
 **Hỏi: Xóa folder `data/subset` rồi `dvc pull` có dựng lại được không?**
-CÓ — đã test thật: chỉ cần còn cuống vé `data/subset.dvc` (trong git) → `dvc checkout`/`pull` dựng lại đủ 280 ảnh + 7 folder (blob lấy từ cache, hoặc từ MinIO nếu cache trống).
+CÓ — đã test thật: chỉ cần còn cuống vé `data/subset.dvc` (trong git) → `dvc checkout`/`pull` dựng lại đủ ảnh + 7 folder lớp (blob lấy từ cache, hoặc từ MinIO nếu cache trống).
 
 **Hỏi: File `.dir` để ở đâu? Mỗi version có 1 `.dir` riêng?**
 `.dir` lưu ở cache (`.dvc/cache/files/md5/<2>/<rest>.dir`) **và** MinIO (bucket `dvc-store`), cũng là 1 blob theo hash. Mỗi version data = 1 `.dir` riêng (2 version → 2 file `.dir`).
@@ -283,5 +286,8 @@ Blob **chính là ảnh JPEG thật**, chỉ **đổi tên thành md5** (bỏ đ
 >                                          │
 >                                          ▼
 >                              MLflow ──► MinIO[mlflow] + Registry (gate/stage)
+>                                            │ promote (sync model)
+>                                            ▼
+>                    api serving ◄──nạp──── MinIO[models]/production/model.pt
 > ```
-> **DVC** lo *data nào* · **Prefect** lo *chạy lúc nào* · **MLflow** lo *ra model gì, model nào tốt* · **MinIO** = kho chung.
+> **DVC** lo *data nào* · **Prefect** lo *chạy lúc nào* · **MLflow** lo *ra model gì, model nào tốt* · **MinIO[models]** = nơi api nạp model serving · **MinIO** = kho chung.
