@@ -40,3 +40,20 @@ node_modules/
 next-env.d.ts
 demo/
 drift_data/
+.coverage
+.coverage.*
+notebooks/archive.zip
+notebooks/_split_local.py
+data_split/
+data.zip
+kaggle_upload/
+
+# Model files now live in MinIO bucket "models/" (not local, not host-mounted)
+models/**/*.pt
+notebooks/_lc_train.py
+notebooks/_n600_train.py
+notebooks/_build_train_notebook.py
+
+# Persistence bind-mounts (postgres/minio/grafana/prefect data) + model backups
+mounts/
+model_backups/
