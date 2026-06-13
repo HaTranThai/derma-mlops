@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react"
 
+import { apiFetch } from "../../lib/api"
+
 const GRAFANA_URL = "http://localhost:3001"
 
 const TONES = {
@@ -42,13 +44,12 @@ export default function Monitoring() {
   const [error, setError] = useState(null)
 
   function load() {
-    fetch("/api/monitoring?window=200")
-      .then((r) => r.json())
+    apiFetch("/api/monitoring?window=200")
       .then((d) => {
-        if (d.detail) setError(d.detail)
-        else setData(d)
+        setData(d)
+        setError(null)
       })
-      .catch(() => setError("Không kết nối được API"))
+      .catch((e) => setError(e.message))
   }
 
   useEffect(() => {
@@ -87,6 +88,8 @@ export default function Monitoring() {
       {error && (
         <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</div>
       )}
+
+      {!data && !error && <p className="text-sm text-slate-500">Đang tải số liệu...</p>}
 
       {data && (
         <>

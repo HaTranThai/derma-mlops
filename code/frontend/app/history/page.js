@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 
 import Lightbox from "../components/Lightbox"
+import { apiFetch } from "../../lib/api"
 
 const CLASS_NAMES = {
   nv: "Nốt ruồi sắc tố",
@@ -28,13 +29,10 @@ export default function History() {
 
   useEffect(() => {
     setLoading(true)
-    fetch(`/api/predictions?page=${page}&limit=${LIMIT}`)
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.detail) setError(d.detail)
-        else setData(d)
-      })
-      .catch(() => setError("Không kết nối được API"))
+    setError(null)
+    apiFetch(`/api/predictions?page=${page}&limit=${LIMIT}`)
+      .then((d) => setData(d))
+      .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
   }, [page])
 

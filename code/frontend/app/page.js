@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 
 import Lightbox from "./components/Lightbox"
+import { apiFetch } from "../lib/api"
 
 const CLASS_NAMES = {
   nv: "Nốt ruồi sắc tố (Melanocytic nevi)",
@@ -44,8 +45,7 @@ export default function Home() {
   const [lightbox, setLightbox] = useState(null)
 
   useEffect(() => {
-    fetch("/api/health")
-      .then((r) => r.json())
+    apiFetch("/api/health")
       .then(setHealth)
       .catch(() => setHealth({ status: "unreachable", model_version: "none" }))
   }, [])
@@ -67,12 +67,10 @@ export default function Home() {
     try {
       const fd = new FormData()
       fd.append("file", file)
-      const res = await fetch("/api/predict", { method: "POST", body: fd })
-      const data = await res.json()
-      if (!res.ok) setError(data.detail || "Đã xảy ra lỗi")
-      else setResult(data)
+      const data = await apiFetch("/api/predict", { method: "POST", body: fd })
+      setResult(data)
     } catch (err) {
-      setError("Không kết nối được API")
+      setError(err.message)
     }
     setLoading(false)
   }

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 
 import Lightbox from "../components/Lightbox"
+import { apiFetch } from "../../lib/api"
 
 const CLASS_NAMES = {
   akiec: "Dày sừng ánh sáng",
@@ -30,16 +31,12 @@ export default function Review() {
   function load() {
     setLoading(true)
     setError(null)
-    fetch("/api/reviews/queue?limit=50")
-      .then((r) => r.json())
+    apiFetch("/api/reviews/queue?limit=50")
       .then((d) => {
-        if (d.detail) setError(d.detail)
-        else {
-          setItems(d.items)
-          setTotal(d.total)
-        }
+        setItems(d.items)
+        setTotal(d.total)
       })
-      .catch(() => setError("Không kết nối được API"))
+      .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
   }
 
@@ -47,21 +44,19 @@ export default function Review() {
 
   async function confirm(item) {
     const label = labels[item.prediction_id] || item.predicted_class
-    const res = await fetch("/api/reviews", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        prediction_id: item.prediction_id,
-        review_label: label,
-        reviewer: "simulated",
-      }),
-    })
-    if (res.ok) {
+    try {
+      await apiFetch("/api/reviews", {
+        method: "POST",
+        body: JSON.stringify({
+          prediction_id: item.prediction_id,
+          review_label: label,
+          reviewer: "simulated",
+        }),
+      })
       setItems((prev) => prev.filter((i) => i.prediction_id !== item.prediction_id))
       setTotal((t) => Math.max(0, t - 1))
-    } else {
-      const d = await res.json().catch(() => ({}))
-      setError(d.detail || "Không gửi được review")
+    } catch (e) {
+      setError(e.message)
     }
   }
 

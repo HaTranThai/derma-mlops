@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react"
 
+import { apiFetch, ApiError } from "../../lib/api"
+
 function StageBadge({ stage }) {
   const color =
     stage === "Production"
@@ -92,25 +94,25 @@ export default function Admin() {
     setError(null)
     try {
       const [m, g, r, c, t] = await Promise.all([
-        fetch("/api/admin/models", { headers: headers() }),
-        fetch("/api/admin/gate", { headers: headers() }),
-        fetch("/api/admin/runs", { headers: headers() }),
-        fetch("/api/admin/config", { headers: headers() }),
-        fetch("/api/admin/trigger-status", { headers: headers() }),
+        apiFetch("/api/admin/models", { headers: headers() }),
+        apiFetch("/api/admin/gate", { headers: headers() }),
+        apiFetch("/api/admin/runs", { headers: headers() }),
+        apiFetch("/api/admin/config", { headers: headers() }),
+        apiFetch("/api/admin/trigger-status", { headers: headers() }),
       ])
-      if (m.status === 401) {
+      setModels(m.versions || [])
+      setGate(g)
+      setRuns(r.runs || [])
+      setConfig(c)
+      setTrigger(t)
+      setAuthed(true)
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) {
         setError("Sai admin token")
         setAuthed(false)
-        return
+      } else {
+        setError(e.message)
       }
-      setModels((await m.json()).versions || [])
-      setGate(await g.json())
-      setRuns((await r.json()).runs || [])
-      setConfig(await c.json())
-      setTrigger(await t.json())
-      setAuthed(true)
-    } catch {
-      setError("Không kết nối được API")
     }
   }
 
@@ -127,28 +129,31 @@ export default function Admin() {
   async function action(path, method = "POST") {
     setMessage(null)
     setError(null)
-    const res = await fetch(`/api/admin/${path}`, { method, headers: headers() })
-    const data = await res.json()
-    if (!res.ok) setError(data.detail || "Lỗi")
-    else setMessage(`OK: ${path}`)
+    try {
+      await apiFetch(`/api/admin/${path}`, { method, headers: headers() })
+      setMessage(`OK: ${path}`)
+    } catch (e) {
+      setError(e.message)
+    }
     loadAll()
   }
 
   async function ingestReviews() {
     setError(null)
     setMessage("Đang đưa ảnh review vào tập train + DVC (có thể mất vài chục giây)...")
-    const res = await fetch("/api/admin/ingest-reviews", { method: "POST", headers: headers() })
-    const data = await res.json()
-    if (!res.ok) {
-      setError(data.detail || "Lỗi ingest")
-    } else if (data.note === "khong co review moi") {
-      setMessage("Không có review mới để đưa vào tập train.")
-    } else {
-      const dv = data.data_version ? data.data_version.slice(0, 12) : "—"
-      const extra = []
-      if (data.leaked) extra.push(`${data.leaked} bị loại (trùng val/test)`)
-      if (data.invalid) extra.push(`${data.invalid} ảnh lỗi/sai nhãn`)
-      setMessage(`Đã đưa ${data.ingested} ảnh vào train${extra.length ? " | " + extra.join(", ") : ""} | dvc: ${data.dvc} | data version: ${dv}`)
+    try {
+      const data = await apiFetch("/api/admin/ingest-reviews", { method: "POST", headers: headers() })
+      if (data.note === "khong co review moi") {
+        setMessage("Không có review mới để đưa vào tập train.")
+      } else {
+        const dv = data.data_version ? data.data_version.slice(0, 12) : "—"
+        const extra = []
+        if (data.leaked) extra.push(`${data.leaked} bị loại (trùng val/test)`)
+        if (data.invalid) extra.push(`${data.invalid} ảnh lỗi/sai nhãn`)
+        setMessage(`Đã đưa ${data.ingested} ảnh vào train${extra.length ? " | " + extra.join(", ") : ""} | dvc: ${data.dvc} | data version: ${dv}`)
+      }
+    } catch (e) {
+      setError(e.message)
     }
     loadAll()
   }
@@ -157,15 +162,14 @@ export default function Admin() {
     setMessage(null)
     setError(null)
     try {
-      const res = await fetch("/api/admin/config", {
+      await apiFetch("/api/admin/config", {
         method: "PUT",
         headers: headers(),
         body: JSON.stringify(config),
       })
-      if (!res.ok) setError("Lưu config thất bại")
-      else setMessage("Đã lưu config")
-    } catch {
-      setError("Lưu config thất bại")
+      setMessage("Đã lưu config")
+    } catch (e) {
+      setError(e.message)
     }
   }
 
