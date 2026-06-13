@@ -41,12 +41,7 @@ def ingest_reviews():
 
 @router.post("/retrain", dependencies=[Depends(require_admin)])
 def retrain():
-    try:
-        run = prefect_trigger.trigger_retraining("manual")
-        return {"status": "triggered", "via": "prefect", "run": run}
-    except Exception:
-        result = retrain_service.run("manual")
-        return {"status": "done", "via": "fallback", "result": result}
+    return retrain_service.trigger("manual")
 
 
 @router.post("/promote/{version}", dependencies=[Depends(require_admin)])

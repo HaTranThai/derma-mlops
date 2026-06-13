@@ -61,3 +61,21 @@ def set_config(value, key=RETRAIN_CONFIG_KEY, updated_by="admin"):
             (key, Jsonb(value), updated_by),
         )
     return value
+
+
+def get_value(key, default=None):
+    with pool.connection() as conn:
+        row = conn.execute("SELECT value FROM system_config WHERE key = %s", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+LAST_TRAINED_KEY = "last_trained_data_version"
+
+
+def get_last_trained_data_version():
+    value = get_value(LAST_TRAINED_KEY)
+    return value.get("dv") if isinstance(value, dict) else None
+
+
+def set_last_trained_data_version(dv):
+    set_config({"dv": dv}, key=LAST_TRAINED_KEY)

@@ -97,6 +97,21 @@ def count_reviews_since(since):
     return row["total"]
 
 
+COUNT_UNINGESTED_SQL = """
+SELECT count(*) AS total
+FROM reviews
+WHERE review_status = 'reviewed'
+  AND review_label IS NOT NULL
+  AND used_in_data_version IS NULL
+"""
+
+
+def count_uningested_reviews():
+    with pool.connection() as conn:
+        row = conn.execute(COUNT_UNINGESTED_SQL).fetchone()
+    return row["total"]
+
+
 def online_accuracy(window):
     with pool.connection() as conn:
         row = conn.execute(ONLINE_ACCURACY_SQL, {"window": window}).fetchone()

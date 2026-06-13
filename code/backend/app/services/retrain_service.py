@@ -42,6 +42,47 @@ def train_candidate(trigger_reason="manual"):
     return _with_retry(lambda: trainer.train_smoke(config_repository.get_config(), trigger_reason), retries=1)
 
 
+def trigger(trigger_reason="manual"):
+    """Chạy ở API: auto-ingest review mới vào tập train + bỏ qua nếu data không đổi,
+    rồi đẩy retrain (Prefect, fallback chạy thẳng). Ingest phải chạy ở api (rw data + dvc)."""
+    pool.open()
+    config = config_repository.get_config()
+    mode = config.get("mode", "artifact")
+
+    ingest_result = None
+    if mode == "smoke":
+        try:
+            from app.services import ingest_service
+
+            ingest_result = ingest_service.ingest_reviews()
+            logger.warning("Auto-ingest truoc retrain: ingested=%s leaked=%s data_version=%s",
+                           ingest_result.get("ingested"), ingest_result.get("leaked"), ingest_result.get("data_version"))
+        except Exception as err:
+            logger.warning("Auto-ingest loi: %s", err)
+
+        current_dv = (ingest_result or {}).get("data_version")
+        last_dv = config_repository.get_last_trained_data_version()
+        if trigger_reason != "manual" and current_dv and current_dv == last_dv:
+            detail = {"status": "skip_no_new_data", "data_version": current_dv,
+                      "note": "data khong doi ke tu lan train truoc -> bo qua retrain (chi canh bao)"}
+            run_repository.insert_run({
+                "trigger_reason": trigger_reason, "mode": mode, "reviewed_count": gather_reviewed(),
+                "production_tag": None, "candidate_tag": None, "gate_passed": None,
+                "promoted": False, "detail": detail,
+            })
+            logger.warning("SKIP retrain (%s): data khong doi -> khong train", trigger_reason)
+            return {"status": "skipped", "reason": "no_new_data", "data_version": current_dv, "ingest": ingest_result}
+
+    from app.services import prefect_trigger
+
+    try:
+        run_info = prefect_trigger.trigger_retraining(trigger_reason)
+        return {"status": "triggered", "via": "prefect", "run": run_info, "ingest": ingest_result}
+    except Exception:
+        result = run(trigger_reason)
+        return {"status": "done", "via": "fallback", "result": result, "ingest": ingest_result}
+
+
 def run(trigger_reason="manual"):
     pool.open()
     config = config_repository.get_config()
@@ -53,6 +94,7 @@ def run(trigger_reason="manual"):
         trained = train_candidate(trigger_reason)
         candidate = trained["best"]
         production = mlflow_service.get_production()
+        config_repository.set_last_trained_data_version(trained.get("data_version"))
         logger.warning("Smoke: train %s kien truc, best=%s (macro_f1=%.3f)",
                        len(trained["candidates"]), candidate.get("arch"), candidate["metrics"]["macro_f1"])
     else:

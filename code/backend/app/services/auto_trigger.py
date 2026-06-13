@@ -24,8 +24,8 @@ def _cooldown_ok(trig, last_retrain):
 
 def _signal_reviewed_data(trig, last_retrain):
     threshold = trig.get("min_reviewed_images", 100)
-    count = review_repository.count_reviews_since(last_retrain)
-    return count >= threshold, {"reviewed_since_last": count, "threshold": threshold}
+    count = review_repository.count_uningested_reviews()
+    return count >= threshold, {"uningested_reviews": count, "threshold": threshold}
 
 
 def _signal_drift(trig):
@@ -108,10 +108,7 @@ def evaluate():
 def _trigger(reason):
     global _last_trigger
     _last_trigger = datetime.now(timezone.utc)
-    try:
-        prefect_trigger.trigger_retraining(reason)
-    except Exception:
-        retrain_service.run(reason)
+    retrain_service.trigger(reason)
 
 
 def _interval():
