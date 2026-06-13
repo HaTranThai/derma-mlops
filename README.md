@@ -92,7 +92,8 @@ docker compose up --build
 | GET | `/admin/runs` | Lịch sử các lần retrain (kèm `detail` gate) |
 
 > **Auto-trigger (4 tín hiệu)** — 4 tín hiệu OR, chạy ở 2 nơi khác nhau:
-> - **S1/S2/S3 (event-driven)** — background loop trong **api** (bật bằng `auto_trigger_enabled`) đánh giá định kỳ: **S1** đủ review mới (`min_reviewed_images`), **S2** drift/confidence thấp (`drift_rate`/`low_confidence_rate`), **S3** hiệu năng online giảm (accuracy dự đoán vs nhãn bác sĩ < `perf_min_accuracy`) — kèm guard `cooldown_minutes`. Tín hiệu bật → gọi retrain qua Prefect.
+> - **S1/S2/S3 (event-driven)** — background loop trong **api** (bật bằng `auto_trigger_enabled`) đánh giá định kỳ: **S1** đủ **ảnh review CHƯA ingest** (`used_in_data_version IS NULL` ≥ `min_reviewed_images`), **S2** drift/confidence thấp (`drift_rate`/`low_confidence_rate`), **S3** hiệu năng online giảm (accuracy dự đoán vs nhãn bác sĩ < `perf_min_accuracy`) — kèm guard `cooldown_minutes`. Tín hiệu bật → gọi `retrain_service.trigger()`.
+> - **Khép kín active-learning:** mọi retrain (S1–S4/tay) **tự ingest** review đang chờ vào `data/subset` + `dvc push` **trước khi train** (chạy ở api); nếu tín hiệu **tự động** mà data **không đổi** → **bỏ qua** (`skip_no_new_data`), không train vô ích. `manual` luôn train.
 > - **S4 (định kỳ)** — **lịch Prefect cron** (`schedule_cron`, mặc định `0 2 1 * *`) do `prefect-server` tự bắn, `prefect-worker` chạy. KHÔNG nằm trong api loop. Đổi lịch trong config → restart `prefect-worker` để đăng ký lại.
 >
 > `trigger_reason` ghi rõ tín hiệu nào kích hoạt (vd `S1+S2+S3`, hoặc `S4` cho run theo lịch). Xem S1–S3 live bằng `/admin/trigger-status` hoặc panel "Tín hiệu trigger" trên trang Admin. Worker luôn thực thi gate+promote. Đây là retraining **event-driven + scheduled** (Level 2).

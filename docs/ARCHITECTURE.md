@@ -174,6 +174,7 @@ predict ─► ảnh ở MinIO "predictions/" + bản ghi DB
  retrain (S1/tay) → trainer đọc data/subset (đã có ảnh review) + warm-start → gate
 ```
 
+> Bấm nút là **thủ công**; ngoài ra **mọi retrain (S1–S4/tay) tự gọi ingest này trước khi train** (xem §9) — nút chỉ để ingest sớm/độc lập.
 > DVC chạy **ngay trong container api** (`dvc[s3]`, `core.no_scm=true`, remote nội bộ `minio_internal` → `minio:9000`).
 > Vòng human-in-the-loop khép kín: **chỉ** ảnh bác sĩ đã duyệt **và** không trùng holdout (val/test) mới vào tập train.
 
@@ -190,12 +191,17 @@ DVC (không phải Prefect) kéo data từ MinIO theo con trỏ; Prefect chỉ c
 
 | Mã | Tín hiệu | Service đánh giá | Nguồn dữ liệu |
 |---|---|---|---|
-| S1 | đủ review mới | `api` (loop) | `reviews` (đếm từ lần retrain) |
+| S1 | đủ **ảnh review CHƯA ingest** | `api` (loop) | `reviews` (`used_in_data_version IS NULL` ≥ ngưỡng) |
 | S2 | drift / confidence thấp | `api` (loop) | `predictions` (cờ drift/low-conf) |
 | S3 | hiệu năng online giảm | `api` (loop) | `reviews`+`predictions` (accuracy) |
 | S4 | định kỳ | `prefect-server` (cron) | lịch `schedule_cron` |
 
 S1–S3 event-driven (api → gọi Prefect REST); S4 = Prefect cron tự bắn. Tất cả hội tụ về deployment `retraining/default`, worker thực thi.
+
+**Khép kín active-learning (mọi tín hiệu đi qua `retrain_service.trigger()` ở api):**
+1. **Auto-ingest**: trước khi train, tự đưa review đang chờ (`used_in_data_version IS NULL`) vào `data/subset` + `dvc push` → train luôn trên data mới nhất. *(Ingest chạy ở `api` vì worker mount `data:ro` + không có dvc; worker đọc cùng folder host nên thấy ngay.)*
+2. **Skip-guard**: nếu tín hiệu **tự động** mà **data không đổi** (`data_version` == lần train trước) → **bỏ qua** (ghi `skip_no_new_data`, không train vô ích). `manual` (Retrain Now) thì luôn train.
+> Nhờ vậy S2/S3/S4 chỉ thực sự train khi **có dữ liệu review mới** (vd ảnh gây drift đã được duyệt); không có gì mới thì chỉ đóng vai "chuông báo".
 
 ## 10. Quyết định thiết kế & đánh đổi (tóm tắt)
 

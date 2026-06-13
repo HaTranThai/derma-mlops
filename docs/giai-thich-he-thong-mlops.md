@@ -162,14 +162,15 @@ Database + API + UI + **bộ lập lịch**. Lưu: danh sách **deployment** (fl
 ### 4 tín hiệu trigger retrain
 | Mã | Tín hiệu | Ai đánh giá | Cơ chế |
 |---|---|---|---|
-| **S1** | đủ review mới | `api` (loop) | đếm review từ lần retrain trước ≥ ngưỡng |
+| **S1** | đủ **ảnh review CHƯA ingest** | `api` (loop) | đếm review `used_in_data_version IS NULL` ≥ ngưỡng |
 | **S2** | drift / confidence thấp | `api` (loop) | drift_rate/low_confidence_rate cửa sổ gần nhất vượt ngưỡng |
 | **S3** | hiệu năng online giảm | `api` (loop) | accuracy (dự đoán vs nhãn bác sĩ) < ngưỡng |
 | **S4** | định kỳ | `prefect-server` (cron) | lịch `schedule_cron` (mặc định `0 2 1 * *`) tự bắn |
 
-- S1/S2/S3: event-driven, **đánh giá trong `api`** (background loop), vượt ngưỡng → gọi Prefect.
+- S1/S2/S3: event-driven, **đánh giá trong `api`** (background loop), vượt ngưỡng → gọi `retrain_service.trigger()`.
 - S4: **lịch Prefect cron thật**, server tự bắn, worker chạy.
 - Cả 4 đổ về 1 deployment `retraining/default`; **worker** luôn thực thi gate+promote.
+- **Khép kín:** mọi tín hiệu → `trigger()` ở api **tự ingest** review đang chờ (→ data/subset + dvc) **trước khi** train. Tín hiệu **tự động** mà data **không đổi** → **bỏ qua** (`skip_no_new_data`), không train vô ích; `manual` luôn train.
 
 > **Quan trọng:** Prefect KHÔNG bao giờ đụng data/MinIO/DVC. Nó chỉ quyết định *khi nào* và *gọi code*. Việc đọc ảnh, train là của `trainer.py`.
 
@@ -255,7 +256,7 @@ Version dữ liệu train (trụ cột data versioning), giữ git nhẹ (không
 Git giữ *cuống vé* (`.dvc`, text, có lịch sử); DVC giữ *file nặng* (blob theo hash). `git checkout` commit cũ → cuống vé cũ → `dvc checkout` → data cũ. Git cho data một dòng thời gian.
 
 **Hỏi: `dvc push` xong có tự train không?**
-KHÔNG. `dvc add/push` chỉ version + cất data; train chạy bởi 4 tín hiệu (S1–S4) hoặc Admin bấm — vẫn tách rời. **Đã nối phần review→data**: nút Admin **"Đưa review vào tập train"** (`/admin/ingest-reviews`) tự ghi ảnh review vào `data/subset` rồi `dvc add/push` (có leak-guard md5 vs val/test). Còn "data mới → tự kích train" thì để S1 lo (đủ review → retrain).
+`dvc add/push` chỉ version + cất data. Nhưng vòng **review → data → train** giờ đã **khép kín**: mọi retrain (S1–S4 hoặc Admin bấm) đi qua `retrain_service.trigger()` ở api → **tự ingest** review đang chờ vào `data/subset` + `dvc push` (leak-guard md5 vs val/test) **trước khi** train. Nút **"Đưa review vào tập train"** chỉ để ingest sớm/độc lập. Tín hiệu **tự động** mà data không đổi → **bỏ qua** (`skip_no_new_data`), không train thừa.
 
 **Hỏi: Đang ở version data nào thì train dùng version đó chứ?**
 ĐÚNG. `trainer` đọc `data/subset` trên đĩa = đúng version đang checkout, không thể khác. Việc đã bổ sung: **ghi lại** hash version đó vào MLflow/checkpoint/run (`data_version`) để truy ngược.
