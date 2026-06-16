@@ -18,13 +18,13 @@ TRIG = {
 
 
 def test_s1_fires_when_enough_reviews(monkeypatch):
-    monkeypatch.setattr(review_repository, "count_reviews_since", lambda since: 150)
+    monkeypatch.setattr(review_repository, "count_uningested_reviews", lambda: 150)
     fired, _ = auto_trigger._signal_reviewed_data(TRIG, None)
     assert fired is True
 
 
 def test_s1_not_fire_when_few_reviews(monkeypatch):
-    monkeypatch.setattr(review_repository, "count_reviews_since", lambda since: 5)
+    monkeypatch.setattr(review_repository, "count_uningested_reviews", lambda: 5)
     fired, _ = auto_trigger._signal_reviewed_data(TRIG, None)
     assert fired is False
 

@@ -1,0 +1,14 @@
+# Loại các module infra/glue khỏi đo coverage — chúng cần MinIO/torch/DVC/Kafka/Prefect
+# nên chỉ kiểm thử được qua integration/e2e, không phải unit test.
+[run]
+omit =
+    app/services/trainer.py
+    app/services/model_service.py
+    app/services/gradcam_service.py
+    app/services/model_store.py
+    app/services/storage_service.py
+    app/services/ingest_service.py
+    app/services/eval_service.py
+    app/consumer/*
+    app/flows/*
+    app/db/init_db.py
