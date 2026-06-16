@@ -173,6 +173,7 @@ def list_versions():
             "stage": mv.current_stage,
             "arch": arch,
             "trigger": mv.tags.get("trigger") or "upload",
+            "created": mv.creation_timestamp,
             "metrics": metrics,
         })
     return sorted(result, key=lambda item: item["version"])

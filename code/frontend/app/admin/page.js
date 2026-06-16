@@ -67,6 +67,58 @@ function Toggle({ label, value, onChange }) {
   )
 }
 
+function fmtTime(ms) {
+  if (!ms) return "—"
+  const d = new Date(ms)
+  const p = (n) => String(n).padStart(2, "0")
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+function StatusPill({ label, value, tone = "slate" }) {
+  const tones = {
+    green: "bg-emerald-50 text-emerald-700 ring-emerald-100",
+    amber: "bg-amber-50 text-amber-700 ring-amber-100",
+    indigo: "bg-indigo-50 text-indigo-700 ring-indigo-100",
+    slate: "bg-slate-100 text-slate-600 ring-slate-200",
+  }
+  return (
+    <span className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-medium ring-1 ring-inset ${tones[tone]}`}>
+      <span className="text-slate-400">{label}</span>
+      <b>{value}</b>
+    </span>
+  )
+}
+
+function InfoTip({ text }) {
+  return (
+    <span className="group/tip relative inline-flex align-middle">
+      <span
+        role="button"
+        tabIndex={0}
+        aria-label="Giải thích"
+        className="grid h-5 w-5 cursor-help place-items-center rounded-full bg-slate-100 text-[11px] font-bold text-slate-400 transition hover:bg-teal-100 hover:text-teal-600"
+      >
+        !
+      </span>
+      <span className="pointer-events-none invisible absolute left-0 top-7 z-30 w-80 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-normal leading-relaxed text-slate-600 opacity-0 shadow-xl transition-all duration-150 group-hover/tip:visible group-hover/tip:opacity-100">
+        {text}
+      </span>
+    </span>
+  )
+}
+
+function SectionHead({ title, desc, right }) {
+  return (
+    <div className="mb-4 flex items-start justify-between gap-4">
+      <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900">
+        {title}
+        {desc && <InfoTip text={desc} />}
+      </h2>
+      {right && <div className="shrink-0">{right}</div>}
+    </div>
+  )
+}
+
 export default function Admin() {
   const [token, setToken] = useState("")
   const [authed, setAuthed] = useState(false)
@@ -209,7 +261,7 @@ export default function Admin() {
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-10">
-      <div className="mb-6 flex items-center justify-between animate-fade-up">
+      <div className="mb-3 flex items-center justify-between animate-fade-up">
         <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">Admin <span className="gradient-text">Control Plane</span></h1>
         <button
           onClick={() => {
@@ -221,6 +273,18 @@ export default function Admin() {
           Đăng xuất
         </button>
       </div>
+
+      {(() => {
+        const prod = models.find((m) => m.stage === "Production")
+        return (
+          <div className="mb-7 flex flex-wrap items-center gap-2.5 animate-fade-up">
+            <StatusPill label="Production" value={prod ? `${prod.tag} · ${prod.arch || "—"}` : "chưa có"} tone={prod ? "green" : "slate"} />
+            <StatusPill label="Auto-trigger" value={config?.auto_trigger_enabled ? "BẬT" : "TẮT"} tone={config?.auto_trigger_enabled ? "green" : "slate"} />
+            <StatusPill label="Chế độ" value={config?.mode || "—"} tone="indigo" />
+            <StatusPill label="Tổng version" value={models.length} tone="slate" />
+          </div>
+        )
+      })()}
 
       {message && (
         <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-700">
@@ -234,15 +298,11 @@ export default function Admin() {
       )}
 
       <section className="glass-card mb-8 p-5">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-semibold text-slate-900">Model Registry</h2>
-          <button
-            onClick={() => action("seed-models")}
-            className="btn-soft text-sm"
-          >
-            Seed models
-          </button>
-        </div>
+        <SectionHead
+          title="Model Registry"
+          desc={<>Mọi version model (từ MLflow). <b className="text-emerald-700">Production</b> = đang serve · <b className="text-amber-700">Staging</b> = candidate chờ duyệt. Nút <b>Promote</b> = đưa lên Production <b>thủ công</b> (bỏ qua gate).</>}
+          right={<button onClick={() => action("seed-models")} className="btn-soft text-sm">Seed models</button>}
+        />
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-slate-400">
@@ -251,6 +311,7 @@ export default function Admin() {
               <th>Kiến trúc</th>
               <th>Stage</th>
               <th>Tín hiệu</th>
+              <th>Thời gian</th>
               <th>macro_f1</th>
               <th>mel_recall</th>
               <th>accuracy</th>
@@ -271,6 +332,7 @@ export default function Admin() {
                     {m.trigger || "—"}
                   </span>
                 </td>
+                <td className="whitespace-nowrap text-xs text-slate-500">{fmtTime(m.created)}</td>
                 <td>{(m.metrics.macro_f1 ?? 0).toFixed(3)}</td>
                 <td>{(m.metrics.melanoma_recall ?? 0).toFixed(3)}</td>
                 <td>{(m.metrics.accuracy ?? 0).toFixed(3)}</td>
@@ -291,36 +353,15 @@ export default function Admin() {
       </section>
 
       <section className="glass-card mb-8 p-5">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-semibold text-slate-900">Promote Gate & Retrain</h2>
-          <div className="flex gap-2">
-            <button
-              onClick={ingestReviews}
-              className="btn-soft text-sm"
-              title="Tải ảnh đã review từ MinIO vào data/subset + dvc add/push (tạo data version mới)"
-            >
-              Đưa review vào tập train
-            </button>
-            <button
-              onClick={() => action("eval-production-val")}
-              className="btn-soft text-sm"
-              title="Chấm model Production trên data/val (vài phút)"
-            >
-              Chấm Prod/val
-            </button>
-            <button
-              onClick={() => action("reload-model")}
-              className="btn-soft text-sm"
-            >
-              Reload model
-            </button>
-            <button
-              onClick={() => action("retrain")}
-              className="btn-grad px-3 py-1.5 text-sm"
-            >
-              Retrain Now
-            </button>
-          </div>
+        <SectionHead
+          title="Huấn luyện & Duyệt model"
+          desc={<><b>Retrain Now</b> train candidate mới (theo phần Cấu hình bên dưới) → so với Production qua <b>Gate</b> → đạt thì tự promote. <b>Reload model</b> dùng sau khi promote để serve model mới.</>}
+        />
+        <div className="mb-5 flex flex-wrap gap-2.5">
+          <button onClick={() => action("retrain")} className="btn-grad px-4 py-2 text-sm" title="Train candidate ngay rồi gate">Retrain Now</button>
+          <button onClick={ingestReviews} className="btn-soft text-sm" title="Tải ảnh đã review từ MinIO vào data/subset + dvc push">Đưa review vào tập train</button>
+          <button onClick={() => action("eval-production-val")} className="btn-soft text-sm" title="Chấm model Production trên data/val (~vài phút)">Chấm Prod/val</button>
+          <button onClick={() => action("reload-model")} className="btn-soft text-sm" title="Nạp lại model Production từ MinIO — dùng sau khi promote">Reload model</button>
         </div>
         {gate?.gate ? (
           <div>
@@ -356,20 +397,21 @@ export default function Admin() {
             </table>
           </div>
         ) : (
-          <p className="text-sm text-slate-500">Chưa có candidate (Staging) để so sánh.</p>
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 p-5 text-center text-sm text-slate-500">
+            Chưa có candidate (Staging) để so sánh.
+            <div className="mt-1 text-xs">
+              Bấm <b>Retrain Now</b> để train candidate mới, hoặc chuyển <b>Chế độ → artifact</b> (phần Cấu hình) nếu đã có model ở Staging.
+            </div>
+          </div>
         )}
       </section>
 
       <section className="glass-card mb-8 p-5">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-semibold text-slate-900">Tín hiệu trigger (S1–S4)</h2>
-          <button
-            onClick={loadAll}
-            className="btn-soft text-sm"
-          >
-            Làm mới
-          </button>
-        </div>
+        <SectionHead
+          title="Tự động hoá — Tín hiệu (S1–S4)"
+          desc={<>Khi nào hệ thống <b>TỰ</b> retrain. Bật/tắt + chỉnh ngưỡng ở phần <b>Cấu hình</b> bên dưới. Cột "Chi tiết" cho biết còn thiếu bao nhiêu để tín hiệu kêu.</>}
+          right={<button onClick={loadAll} className="btn-soft text-sm">Làm mới</button>}
+        />
         {trigger ? (
           <div>
             <p className="mb-3 text-sm">
@@ -433,7 +475,10 @@ export default function Admin() {
       </section>
 
       <section className="glass-card mb-8 p-5">
-        <h2 className="mb-3 font-semibold text-slate-900">Lịch sử retrain</h2>
+        <SectionHead
+          title="Lịch sử retrain"
+          desc={<>Các lần retrain đã chạy: tín hiệu kích · mode · kết quả gate · có promote không. (<code>skip_no_new_data</code> = tín hiệu kêu nhưng data không đổi nên bỏ qua.)</>}
+        />
         {runs.length === 0 ? (
           <p className="text-sm text-slate-500">Chưa có lần retrain nào.</p>
         ) : (
@@ -469,12 +514,11 @@ export default function Admin() {
       </section>
 
       <section className="glass-card p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="font-semibold text-slate-900">Tham số retrain (config)</h2>
-          <button onClick={saveConfig} className="btn-grad px-4 py-2 text-sm">
-            Lưu config
-          </button>
-        </div>
+        <SectionHead
+          title="Cấu hình retrain"
+          desc={<>Áp cho <b>mọi</b> retrain (Retrain Now + tín hiệu tự động). Phần <b>Smoke retrain</b> = train thế nào · phần <b>Tín hiệu trigger</b> = ngưỡng để tự kêu. Nhớ bấm <b>Lưu</b>.</>}
+          right={<button onClick={saveConfig} className="btn-grad px-4 py-2 text-sm">Lưu config</button>}
+        />
 
         {!config ? (
           <p className="text-sm text-slate-500">Đang tải…</p>
@@ -483,9 +527,9 @@ export default function Admin() {
             <div className="flex flex-wrap items-end gap-6">
               <label className="block">
                 <span className="text-xs font-semibold text-slate-500">Chế độ retrain</span>
-                <select value={config.mode} onChange={(e) => setRoot("mode", e.target.value)} className={`${FIELD} w-56`}>
-                  <option value="artifact">artifact (dùng model có sẵn)</option>
-                  <option value="smoke">smoke (train thật)</option>
+                <select value={config.mode} onChange={(e) => setRoot("mode", e.target.value)} className={`${FIELD} w-60`}>
+                  <option value="smoke">smoke (train model mới)</option>
+                  <option value="artifact">artifact (chỉ duyệt model có sẵn)</option>
                 </select>
               </label>
               <div className="pb-2">
