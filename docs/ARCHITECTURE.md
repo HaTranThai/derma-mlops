@@ -6,50 +6,76 @@
 
 Hệ thống MLOps phân loại tổn thương da từ ảnh dermoscopy (HAM10000). Trọng tâm là **kiến trúc vòng đời ML** (data versioning → serving → monitoring → registry → orchestration → retraining), mô hình học sâu chỉ là một thành phần thay thế được. Tự định vị **MLOps Maturity Level 1 đầy đủ + hiện thực cơ chế Level 2** (retraining tự động hướng sự kiện + theo lịch, promote gate).
 
-**Nguyên tắc thiết kế:** tách trách nhiệm rõ (serving / lưu trữ / điều phối / quản model), hướng sự kiện (Kafka), đóng gói container (Docker Compose), mọi tham số cấu hình được (DB `system_config` + `.env`).
+**Nguyên tắc thiết kế:** tách trách nhiệm rõ (serving / lưu trữ / điều phối / quản model), hướng sự kiện (Kafka), đóng gói container (Docker Compose), mọi tham số cấu hình được (DB `system_config` + `.env`), truy cập có xác thực (JWT) + phân quyền (RBAC).
 
 ## 2. Sơ đồ kiến trúc tổng (12 service)
 
-```
-                                   TRÌNH DUYỆT (người dùng · bác sĩ · admin)
-                                              │ http://localhost:3100
-                                              ▼
-┌──────────────────────────────────────────────────────────────────────────────────────┐
-│  frontend (Next.js)  :3100      Dự đoán · Lịch sử · Cần review · Giám sát · Admin        │
-│  /api/* = proxy route handler ─────────────────────────────────────────┐ (server-side) │
-└─────────────────────────────────────────────────────────────────────────┼─────────────┘
-                                                                            ▼ http://api:8000
-┌──────────────────────────────────────────────────────────────────────────────────────┐
-│  api (FastAPI)  :8200→8000                                                              │
-│  routers: health · predict · predictions · reviews · monitoring · admin                 │
-│  services: model_service · model_store · gradcam · storage · drift · mlflow · retrain ·  │
-│            ingest(active-learning) · prefect_trigger · auto_trigger(S1–S3) · kafka       │
-│  model nạp RAM (app.state) ◄── tải từ MinIO: bucket models/production/model.pt           │
-└──┬──────────┬───────────┬──────────────┬──────────────┬───────────────┬────────────────┘
-   │SQL       │S3 object  │/metrics      │event publish │REST trigger    │REST registry/gate
-   ▼          ▼           ▼(scrape)      ▼              ▼                ▼
-┌────────┐ ┌─────────┐ ┌──────────┐  ┌─────────┐  ┌──────────────┐  ┌──────────────────┐
-│postgres│ │ minio   │ │prometheus│  │  kafka  │  │prefect-server│  │ mlflow           │
-│ :5434  │ │9000/01  │ │  :9090   │  │ (KRaft) │  │   :4200      │  │  :5000           │
-│ tables:│ │buckets: │ │scrape api│  │ topic:  │  │ • UI/API     │  │ • tracking       │
-│predict-│ │•models  │ └────┬─────┘  │predicti-│  │ • CRON S4 ──┐│  │ • Model Registry │
-│ions    │ │•predict-│      │query   │on-events│  │   bắn lịch  ││  │ backend: postgres│
-│reviews │ │ ions    │      ▼        └────┬────┘  └─────┬───────┼┘  │ artifacts: minio │
-│system_ │ │•mlflow  │ ┌──────────┐       │fan-out      │ pickup │   └────────▲─────────┘
-│config  │ │•dvc-    │ │ grafana  │   ┌───┴────┐       ▼        ▼            │
-│retrain-│ │ store   │ │  :3001   │   ▼        ▼  ┌────────────────────┐    │
-│ing_runs│ └───┬─────┘ │dashboard │ consumer  alert- │ prefect-worker     │    │
-│        │     │       └──────────┘ (logger)  consumer│ retraining_flow   │────┘
-│ +DB    │     │ ảnh prediction      │ ghi DB │ (drift)│ warm-start→train   │ gate/promote
-│ mlflow │     │                     ▼        ▼ ALERT  │ →re-eval→gate→prom │
-└───▲────┘     │              postgres   (log cảnh báo)└────────────────────┘
-    │          │
-    └──────────┴── consumer ghi prediction ─┘
+```mermaid
+flowchart TD
+    BR["Trình duyệt — doctor · nurse · admin"]
 
- • Model serving:   api ◄── MinIO bucket "models" (production/model.pt — tải 1 lần vào RAM)
- • MLflow artifacts: mọi version model + metrics ──► MinIO bucket "mlflow"
- • Data versioning:  DVC ──add/push (CHỈ data/subset)──► MinIO bucket "dvc-store"  (model KHÔNG đi qua DVC)
- • Promote: worker copy model version → "models" bucket (production/staging/archive); api reload đọc lại từ đó
+    subgraph FE["frontend · Next.js :3100"]
+        AG["AuthGate + NavBar — chặn route theo role"]
+        PX["proxy /api/* — server-side, gắn Bearer token"]
+    end
+
+    subgraph API["api · FastAPI :8200 to 8000"]
+        RT["routers: health · auth · predict · predictions · reviews · monitoring · admin"]
+        DEP["deps: JWT get_current_user / require_admin"]
+        SVC["services: model_service · model_store · gradcam · storage · drift · mlflow · retrain · ingest · prefect_trigger · auto_trigger S1–S3 · kafka · auth"]
+        MEM["model trong RAM (app.state)"]
+    end
+
+    subgraph STORE["Lưu trữ trạng thái"]
+        PG[("postgres :5434 — predictions · reviews · users · system_config · retraining_runs · DB mlflow")]
+        MN[("minio 9000/9001 — buckets: models · predictions · mlflow · dvc-store")]
+    end
+
+    subgraph EVT["Hướng sự kiện"]
+        KF["kafka KRaft — topic prediction-events"]
+        CS["consumer — group prediction-logger"]
+        AC["alert-consumer — group drift-monitor"]
+        AL["Cảnh báo drift (log)"]
+    end
+
+    subgraph MLO["Điều phối + quản model"]
+        PS["prefect-server :4200 — UI/API + CRON S4"]
+        PW["prefect-worker — retraining_flow"]
+        MF["mlflow :5000 — tracking + Model Registry"]
+    end
+
+    subgraph MON["Giám sát"]
+        PM["prometheus :9090"]
+        GF["grafana :3001"]
+    end
+
+    BR -->|"http localhost:3100"| FE
+    AG --- PX
+    PX -->|"http api:8000 + Bearer"| RT
+    RT --- DEP
+    DEP --- SVC
+    SVC --- MEM
+
+    SVC -->|"SQL"| PG
+    SVC -->|"S3 object"| MN
+    MN -.->|"models/production/model.pt → RAM"| MEM
+    SVC -->|"publish"| KF
+    SVC -->|"REST trigger S1–S3"| PS
+    SVC -->|"registry / gate"| MF
+
+    KF -->|"fan-out"| CS
+    KF -->|"fan-out"| AC
+    CS -->|"insert prediction"| PG
+    AC -->|"vượt ngưỡng"| AL
+
+    PM -->|"scrape /metrics"| RT
+    GF --> PM
+
+    PS -->|"pickup flow run"| PW
+    PW -->|"log · register · promote"| MF
+    PW -->|"sync model"| MN
+    MF -->|"artifacts"| MN
+    MF -->|"backend store"| PG
 ```
 
 **Cổng host:** frontend 3100 · api 8200 · postgres 5434 · minio 9000/9001 · prometheus 9090 · grafana 3001 · mlflow 5000 · prefect-server 4200. (kafka, consumer, alert-consumer, prefect-worker: không expose cổng.)
@@ -58,9 +84,9 @@ Hệ thống MLOps phân loại tổn thương da từ ảnh dermoscopy (HAM1000
 
 | Service | Trách nhiệm | Trục |
 |---|---|---|
-| `frontend` | UI Next.js + proxy `/api/*` (không CORS, ẩn URL API) | giao diện |
-| `api` | Serving `/predict` + Grad-CAM (model tải từ MinIO); REST admin; **active-learning ingest** (review→`data/subset`+`dvc add/push`); đánh giá tín hiệu S1–S3; producer Kafka | serving + control |
-| `postgres` | `predictions/reviews/system_config/retraining_runs` + **MLflow backend store** | trạng thái bền |
+| `frontend` | UI Next.js + proxy `/api/*` (không CORS, ẩn URL API); `AuthGate` chặn route khi chưa đăng nhập, ẩn link Admin theo role | giao diện |
+| `api` | Serving `/predict` + Grad-CAM (model tải từ MinIO); xác thực JWT + RBAC; REST admin; **active-learning ingest** (review→`data/subset`+`dvc add/push`); đánh giá tín hiệu S1–S3; producer Kafka | serving + control |
+| `postgres` | `predictions/reviews/users/system_config/retraining_runs` + **MLflow backend store** | trạng thái bền |
 | `minio` | Object storage 4 bucket: `models` (**model serving**: production/staging/archive) · `predictions` (ảnh) · `mlflow` (artifacts) · `dvc-store` (DVC remote cho data) | lưu file |
 | `kafka` | Message broker (KRaft) — topic `prediction-events` | đường ống sự kiện |
 | `consumer` | Group `prediction-logger`: event → ghi `predictions` (async) | logging |
@@ -71,107 +97,189 @@ Hệ thống MLOps phân loại tổn thương da từ ảnh dermoscopy (HAM1000
 | `prometheus` | Thu thập metrics (scrape `api:/metrics`) | giám sát |
 | `grafana` | Dashboard giám sát | giám sát |
 
+## 3A. Xác thực & phân quyền (JWT + RBAC)
+
+Truy cập có **đăng nhập** (JWT `Bearer`, HS256) + **phân quyền theo vai trò** (RBAC). Mật khẩu băm **bcrypt**; người dùng lưu ở bảng `users`; cấu hình `JWT_SECRET` / `JWT_EXPIRE_MINUTES` (mặc định 480 phút) qua biến môi trường.
+
+| Vai trò | Quyền |
+|---|---|
+| `admin` | Toàn bộ — gồm trang Admin (control plane: promote, ingest, retrain, config) **và quản lý người dùng** |
+| `doctor` | Trang lâm sàng: Dự đoán · Lịch sử · Cần review · Giám sát |
+| `nurse` | Như `doctor` (lâm sàng), không vào Admin |
+
+```mermaid
+flowchart LR
+    L["POST /auth/login (username + password)"] -->|"verify bcrypt"| T["JWT access_token {sub, role, exp}"]
+    T --> H["mọi request gắn Authorization: Bearer"]
+    H --> G1["get_current_user — bắt buộc token hợp lệ"]
+    G1 --> G2{"require_admin?"}
+    G2 -->|"role = admin"| OK["cho qua"]
+    G2 -->|"khác"| F403["403 Cần quyền admin"]
+    G1 -.->|"thiếu / hết hạn"| F401["401 → frontend chuyển về /login"]
+```
+
+**Mức bảo vệ từng endpoint** (đăng ký ở [`api/main.py`](../code/backend/app/api/main.py) + per-router):
+
+| Nhóm endpoint | Bảo vệ |
+|---|---|
+| `/health` · `/metrics` (Prometheus) · `GET /predictions/{id}/image` | **public** (cố ý — health-check, scrape, hiển thị ảnh qua thẻ `<img>`) |
+| `POST /auth/login` | public · `GET /auth/me` cần token |
+| `/predict` · `/reviews*` · `GET /predictions` · `GET /predictions/{id}` · `/monitoring/stats` | cần token (mọi role) |
+| `/admin/*` (gồm `/admin/users*`) | cần role **admin** (`require_admin`) |
+
+> Hai tài khoản seed sẵn khi khởi động: `admin/admin123` (admin) và `doctor/doctor123` (doctor). Admin tạo thêm bác sĩ/y tá qua **Quản lý người dùng** (`/admin/users`: list/create/đổi mật khẩu/xoá; chốt: không tự xoá mình, không xoá admin cuối cùng). Đây vẫn là **demo-grade** (mật khẩu mặc định, chưa TLS) — xem [SECURITY.md](SECURITY.md).
+
 ## 4. Mô hình dữ liệu (ERD)
 
-Database `skinlesion` (app) — 4 bảng:
+Database `skinlesion` (app) — 5 bảng:
 
-```
-┌─────────────────────────────┐         ┌──────────────────────────────┐
-│ predictions                 │ 1     1 │ reviews                      │
-├─────────────────────────────┤◄────────┤──────────────────────────────┤
-│ PK id            BIGSERIAL  │         │ PK id              BIGSERIAL  │
-│ UQ prediction_id VARCHAR(40)│─────────│ FK,UQ prediction_id VARCHAR  │
-│    created_at    TIMESTAMPTZ│         │    review_label    VARCHAR(16)│
-│    image_key     VARCHAR    │         │    review_status   VARCHAR(16)│ pending|reviewed
-│    image_width/height  INT  │         │    reviewer        VARCHAR(64)│
-│    predicted_class VARCHAR  │         │    reviewed_at     TIMESTAMPTZ│
-│    confidence    REAL        │         │    created_at      TIMESTAMPTZ│
-│    top_k         JSONB       │         │  used_in_data_version VAR(64)│ ← cờ ingest:
-│    latency_ms    INT         │         └──────────────────────────────┘   NULL=chưa vào train;
-│    model_version VARCHAR(64) │                                            md5 | leak_skipped | invalid
-│    data_version  VARCHAR(64) │  ← hash DVC của tập train tại thời điểm dự đoán
-│    is_low_confidence  BOOL   │
-│    is_drift_suspected BOOL   │  ← drift heuristic (brightness/blur)
-│    brightness/blur_score REAL│
-│    source        VARCHAR(16) │  web|stream
-│    correlation_id VARCHAR(64)│
-└─────────────────────────────┘
+```mermaid
+erDiagram
+    predictions ||--o| reviews : "1 — 0..1 (prediction_id)"
 
-┌─────────────────────────────┐         ┌──────────────────────────────┐
-│ system_config               │         │ retraining_runs              │
-├─────────────────────────────┤         ├──────────────────────────────┤
-│ PK key    VARCHAR(64)       │         │ PK id            BIGSERIAL    │
-│    value  JSONB             │         │    triggered_at  TIMESTAMPTZ  │
-│    updated_at TIMESTAMPTZ   │         │    trigger_reason VARCHAR(16) │ S1+S2+S3 | S4 | manual
-│    updated_by VARCHAR(64)   │         │    mode          VARCHAR(16)  │ artifact | smoke
-└─────────────────────────────┘         │    reviewed_count INT         │
-  key='retrain_config' (JSONB:          │    production_tag/candidate_tag│
-  mode, trigger S1–S4, smoke,           │    gate_passed   BOOL         │
-  promote_rules, schedule_cron…)        │    promoted      BOOL         │
-                                        │    detail        JSONB        │
-                                        └──────────────────────────────┘
+    predictions {
+        bigserial id PK
+        varchar prediction_id UK
+        timestamptz created_at
+        varchar image_key
+        int image_width
+        int image_height
+        varchar predicted_class
+        real confidence
+        jsonb top_k
+        int latency_ms
+        varchar model_version
+        varchar data_version "hash DVC tập train lúc dự đoán"
+        boolean is_low_confidence
+        boolean is_drift_suspected "drift heuristic brightness/blur"
+        real brightness_score
+        real blur_score
+        varchar source "web | stream"
+        varchar correlation_id
+    }
+
+    reviews {
+        bigserial id PK
+        varchar prediction_id FK "UNIQUE — 1:1 predictions"
+        varchar review_label
+        varchar review_status "pending | reviewed"
+        varchar reviewer
+        timestamptz reviewed_at
+        timestamptz created_at
+        varchar used_in_data_version "NULL=chưa ingest; md5 | leak_skipped | invalid"
+    }
+
+    users {
+        bigserial id PK
+        varchar username UK
+        varchar password_hash "bcrypt"
+        varchar role "admin | doctor | nurse"
+        timestamptz created_at
+    }
+
+    system_config {
+        varchar key PK "vd retrain_config"
+        jsonb value "mode, trigger S1–S4, smoke, promote_rules, schedule_cron…"
+        timestamptz updated_at
+        varchar updated_by
+    }
+
+    retraining_runs {
+        bigserial id PK
+        timestamptz triggered_at
+        varchar trigger_reason "S1+S2+S3 | S4 | manual"
+        varchar mode "artifact | smoke"
+        int reviewed_count
+        varchar production_tag
+        varchar candidate_tag
+        boolean gate_passed
+        boolean promoted
+        jsonb detail
+    }
 ```
 
 - **predictions 1—1 reviews**: mỗi prediction có tối đa 1 review (FK + UNIQUE). Bảng tách: predictions bất biến (log), reviews là annotation của bác sĩ.
+- **users**: tài khoản đăng nhập + vai trò (RBAC) — không có FK cứng tới predictions/reviews (`reviewer` chỉ lưu username dạng text).
 - **Quan hệ logic (không FK cứng)**: `model_version`/`data_version` ↔ MLflow registry + DVC hash (governance).
 
 Database `mlflow` (Postgres riêng) — do MLflow tự quản: `experiments`, `runs`, `registered_models`, `model_versions`, `model_version_tags`… (registry + tracking).
 
 ## 5. Sequence — Dự đoán (event-driven qua Kafka)
 
-```
-BR        FE(proxy)     api               MinIO     Kafka        consumer   alert-consumer  PG
- │ POST /api/predict     │                 │         │             │            │           │
- │──(ảnh)──►│ POST /predict                │         │             │            │           │
- │          │──(ảnh)────►│                 │         │             │            │           │
- │          │            │ model→top-k; Grad-CAM; drift            │            │           │
- │          │            │ upload ảnh ────►│         │             │            │           │
- │          │            │ publish event ──────────►│ (topic)     │            │           │
- │          │  200 JSON   │ (top-k+gradcam) │         │             │            │           │
- │◄─────────│◄───────────│ TRẢ NGAY        │         │ fan-out ────┼───────────►│           │
- │          │            │                 │         │             │ insert ───────────────►│
- │          │            │                 │         │             │            │ tính rate │
- │          │            │                 │         │             │            │ >ngưỡng→ALERT
- │  (Kafka down → api ghi thẳng PG: fallback)                     │            │           │
+```mermaid
+sequenceDiagram
+    autonumber
+    participant BR as Trình duyệt (đã đăng nhập)
+    participant FE as frontend proxy
+    participant API as api (FastAPI)
+    participant MN as MinIO
+    participant KF as Kafka
+    participant CS as consumer
+    participant AC as alert-consumer
+    participant PG as PostgreSQL
+
+    BR->>FE: POST /api/predict (ảnh)
+    FE->>API: POST /predict + Authorization Bearer
+    Note over API: deps xác thực JWT (get_current_user)
+    API->>API: tiền xử lý + inference + Grad-CAM + drift
+    API->>MN: upload ảnh (bucket predictions)
+    API->>KF: publish event (prediction-events)
+    API-->>FE: 200 JSON (top-k + Grad-CAM) — trả NGAY
+    FE-->>BR: hiển thị kết quả + Grad-CAM
+    KF-->>CS: fan-out (prediction-logger)
+    KF-->>AC: fan-out (drift-monitor)
+    CS->>PG: insert prediction (async)
+    AC->>AC: tính rate, vượt ngưỡng → cảnh báo (log)
+    Note over API,PG: Kafka down → API ghi thẳng PG (fallback)
+    Note over API: Prometheus scrape /metrics riêng (không phải DB đẩy)
 ```
 
 ## 6. Sequence — Retraining (Prefect → gate → promote)
 
-```
-[trigger]              prefect-server   prefect-worker         PG       MLflow
- S1/S2/S3 (api loop) ──create_flow_run─►│                      │         │
- Admin "Retrain Now" ──/admin/retrain──►│                      │         │
- S4 (cron 0 2 1 * *) ──tự lên lịch──────►│ tạo flow run         │         │
-                                         │──pickup────────────►│         │
-                                         │      retrain_service.run(reason)│
-                                         │      mode=smoke → trainer: WARM-START từ Production
-                                         │        + LUÔN gom ảnh review (pred_*) → train nhiều arch
-                                         │           └─ eval data/val · log+register Staging ──►│
-                                         │      RE-EVAL Production trên data/val (gate cùng nguồn)
-                                         │      PROMOTE GATE: macro_f1(+biên 0.005) · mel_recall │
-                                         │                    (not_worse + SÀN 0.40) · acc(±0.02) │
-                                         │      đạt → promote → sync model → bucket "models" ──►│
-                                         │      ghi retraining_runs(+detail) ►│         │
-                                         │  run COMPLETED      │         │         │
- Admin: /admin/reload-model → api TẢI LẠI model production từ MinIO (không restart)
+```mermaid
+sequenceDiagram
+    autonumber
+    participant TR as Trigger (S1–S3 api loop · S4 cron · Admin Retrain Now)
+    participant PS as prefect-server
+    participant PW as prefect-worker
+    participant DV as ingest+DVC (ở api, trước train)
+    participant MF as MLflow
+    participant MN as MinIO (bucket models)
+    participant PG as PostgreSQL
+
+    TR->>PS: create flow run (retraining/default)
+    PS->>PW: dispatch flow run
+    Note over DV: auto-ingest review → data/subset → dvc push (data version mới)
+    Note over PW: retrain_service.run(reason), mode=smoke
+    PW->>PW: trainer — warm-start từ Production + luôn gom ảnh review → train đa kiến trúc
+    PW->>MF: eval data/val · log + register (Staging)
+    PW->>PW: RE-EVAL Production trên data/val (gate cùng nguồn)
+    PW->>PW: PROMOTE GATE — macro_f1 (+biên 0.005) · mel_recall (not_worse + SÀN 0.40) · acc (±0.02)
+    alt Đạt gate
+        PW->>MF: promote → Production
+        PW->>MN: sync model → models/production/model.pt
+    else Không đạt
+        PW->>MF: giữ Production (candidate ở Staging)
+    end
+    PW->>PG: ghi retraining_runs (+detail)
+    Note over TR,MN: Admin /admin/reload-model → api TẢI LẠI model production từ MinIO (không restart)
 ```
 
 > Triết lý 2 tầng: **TRIGGER** (có nên thử) tách **PROMOTE GATE** (có đủ tốt để thay). Trigger rộng tay cũng an toàn vì gate luôn chặn model kém.
 
 ## 7. Active-learning — review → ingest → data version mới
 
-```
-predict ─► ảnh ở MinIO "predictions/" + bản ghi DB
-              │  bác sĩ review (gán nhãn) → reviews.review_status='reviewed'
-              ▼  POST /admin/ingest-reviews   (nút Admin "Đưa review vào tập train")
- 1. lấy review chưa ingest (used_in_data_version IS NULL)
- 2. tải ảnh từ MinIO "predictions/" → VALIDATE (ảnh mở được + nhãn ∈ lớp hợp lệ)
- 3. LEAK-GUARD: md5 ảnh trùng val/test? → LOẠI khỏi train, đánh dấu "leak_skipped"
- 4. ảnh sạch → ghi data/subset/<nhãn>/pred_<id>.jpg
- 5. dvc add data/subset + dvc push -r minio_internal → data version mới (md5) lên "dvc-store"
- 6. mark reviews.used_in_data_version = <md5>   (idempotent — không ingest lại)
-              ▼
- retrain (S1/tay) → trainer đọc data/subset (đã có ảnh review) + warm-start → gate
+```mermaid
+flowchart TD
+    P["/predict → ảnh ở MinIO predictions/ + bản ghi DB"] --> R["bác sĩ review (gán nhãn)<br/>reviews.review_status = reviewed"]
+    R -->|"POST /admin/ingest-reviews (hoặc auto trước mỗi retrain)"| I1["1. lấy review chưa ingest (used_in_data_version IS NULL)"]
+    I1 --> I2["2. tải ảnh từ MinIO predictions/ → VALIDATE (mở được + nhãn ∈ lớp hợp lệ)"]
+    I2 --> I3{"3. LEAK-GUARD — md5 trùng val/test?"}
+    I3 -->|"trùng"| LK["loại khỏi train · mark leak_skipped"]
+    I3 -->|"sạch"| I4["4. ghi data/subset/{nhãn}/pred_{id}.jpg"]
+    I4 --> I5["5. dvc add + dvc push -r minio_internal → data version mới (md5) lên dvc-store"]
+    I5 --> I6["6. mark reviews.used_in_data_version = md5 (idempotent)"]
+    I6 --> RT["retrain (S1/tay) → trainer đọc data/subset (đã có ảnh review) + warm-start → gate"]
 ```
 
 > Bấm nút là **thủ công**; ngoài ra **mọi retrain (S1–S4/tay) tự gọi ingest này trước khi train** (xem §9) — nút chỉ để ingest sớm/độc lập.
@@ -180,11 +288,12 @@ predict ─► ảnh ở MinIO "predictions/" + bản ghi DB
 
 ## 8. Sequence — Rollback data version (DVC)
 
+```mermaid
+flowchart LR
+    A["① git checkout commit-cũ -- data/subset.dvc<br/>(lấy con trỏ v1)"] --> B["② dvc checkout / dvc pull<br/>→ DVC đọc hash → dựng lại ảnh v1 (từ cache/MinIO)"]
+    B --> C["③ trigger retrain<br/>→ worker đọc /app/data/subset (đang là v1) → train v1"]
 ```
-①  git checkout <commit-cũ> -- data/subset.dvc      (lấy cuống vé v1)
-②  dvc checkout / dvc pull  → DVC đọc hash → dựng lại ảnh v1 lên đĩa (từ cache/MinIO)
-③  trigger retrain          → worker đọc /app/data/subset (đang là v1) → train v1
-```
+
 DVC (không phải Prefect) kéo data từ MinIO theo con trỏ; Prefect chỉ chạy code sau khi data đã có trên đĩa.
 
 ## 9. Luồng tín hiệu retraining (S1–S4)
@@ -195,6 +304,17 @@ DVC (không phải Prefect) kéo data từ MinIO theo con trỏ; Prefect chỉ c
 | S2 | drift / confidence thấp | `api` (loop) | `predictions` (cờ drift/low-conf) |
 | S3 | hiệu năng online giảm | `api` (loop) | `reviews`+`predictions` (accuracy) |
 | S4 | định kỳ | `prefect-server` (cron) | lịch `schedule_cron` |
+
+```mermaid
+flowchart LR
+    S1["S1 đủ review chưa ingest (api loop)"] --> RT
+    S2["S2 drift / low-conf (api loop)"] --> RT
+    S3["S3 accuracy online giảm (api loop)"] --> RT
+    S4["S4 định kỳ cron (prefect-server)"] --> RT["retrain_service.trigger() → deployment retraining/default"]
+    RT --> AI{"auto-ingest review + skip-guard<br/>data_version có đổi?"}
+    AI -->|"có data mới / hoặc manual"| TW["prefect-worker train → promote gate"]
+    AI -->|"auto + data không đổi"| SK["skip_no_new_data (không train vô ích)"]
+```
 
 S1–S3 event-driven (api → gọi Prefect REST); S4 = Prefect cron tự bắn. Tất cả hội tụ về deployment `retraining/default`, worker thực thi.
 
@@ -214,16 +334,16 @@ S1–S3 event-driven (api → gọi Prefect REST); S4 = Prefect cron tự bắn.
 | Ingest tự `dvc add/push` (active-learning) | review→train khép kín, không gõ tay | `dvc add` băm lại cả tập mỗi lần (chậm khi data lớn) |
 | Serving nạp model **từ MinIO** (`models/production/model.pt`) | nguồn chân lý tập trung, deploy máy khác chỉ cần MinIO | tải 1 lần vào RAM lúc startup/reload |
 | DVC chạy trong container (`no_scm`) | ingest tự `dvc add/push`, không cần thao tác host | hack nhẹ (bỏ tích hợp git của DVC) |
-| Auth 1 ADMIN_TOKEN | đủ cho demo/đồ án | chưa RBAC/TLS (xem SECURITY.md) |
+| Auth **JWT + RBAC** (admin/doctor/nurse), mật khẩu **bcrypt** | có user/role thật, admin tự quản tài khoản; thay cho 1 token tĩnh | vẫn demo-grade: mật khẩu mặc định, chưa TLS/refresh-token/pentest (xem SECURITY.md) |
 
 ## 11. Giới hạn đã biết (trung thực)
 
 - `/predict` không scale theo concurrency (inference CPU tuần tự) — đo trong [PERF-REPORT](performance/PERF-REPORT.md), có lộ trình tối ưu.
-- Bảo mật demo-grade (default password, không RBAC/TLS/pentest) — xem [SECURITY.md](SECURITY.md).
+- Bảo mật demo-grade: **đã có** JWT + RBAC + bcrypt, nhưng **chưa** TLS/HTTPS, chưa refresh-token/rotation, mật khẩu mặc định, chưa pentest — xem [SECURITY.md](SECURITY.md).
 - HA: mới bỏ SPOF MLflow; Postgres/MinIO/Kafka còn single-node.
-- "Drift" gồm heuristic chất lượng ảnh + PSI phân bố lớp (chưa drift trên embedding/feature đầy đủ).
+- "Drift" gồm heuristic chất lượng ảnh (brightness/blur) + PSI phân bố lớp (chưa drift trên embedding/feature đầy đủ).
 - **S3 (online accuracy) đo trên ảnh đã review** (vốn là ảnh low-conf) → thiên lệch về phía khó; chưa có tập audit ngẫu nhiên.
 - Confidence chưa calibrate; `dvc pull` trước train chưa nối (chạy 1 máy nên data luôn sẵn) — chỉ cần khi train máy khác.
 - CD (deploy tự động) chưa làm (đánh dấu hướng phát triển).
 
-> **Đã siết (so với bản đầu):** gate **re-eval Production trên data/val** (so cùng nguồn) + **sàn `mel_recall ≥ 0.40`** + **biên macro_f1 0.005** (chống nhiễu); ingest có **leak-guard** (md5 vs val/test); retrain **warm-start** + luôn gom ảnh review.
+> **Đã siết (so với bản đầu):** gate **re-eval Production trên data/val** (so cùng nguồn) + **sàn `mel_recall ≥ 0.40`** + **biên macro_f1 0.005** (chống nhiễu); ingest có **leak-guard** (md5 vs val/test); retrain **warm-start** + luôn gom ảnh review; truy cập có **JWT + RBAC**.

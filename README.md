@@ -16,6 +16,7 @@ Hệ thống MLOps **đầu-cuối** cho bài toán phân loại tổn thương 
 - **Promote Gate**: re-eval Production trên `val` (so cùng nguồn) + **sàn an toàn** `melanoma_recall ≥ 0.40` + biên cải thiện — chỉ promote khi thực sự tốt hơn.
 - **Tự động hoá**: 4 tín hiệu **S1–S4** (đủ review / drift / accuracy giảm / định kỳ) tự kích retrain; tự bỏ qua khi không có dữ liệu mới.
 - **Trang Admin**: bảng điều khiển toàn bộ vòng đời (registry, train, gate, tín hiệu, lịch sử, cấu hình).
+- **Đăng nhập + phân quyền**: JWT (bcrypt) + **RBAC** (`admin` / `doctor` / `nurse`); admin tự tạo & quản lý tài khoản.
 - **Event-driven**: Kafka tách logging/giám sát khỏi luồng request (có fallback khi Kafka chết).
 
 ---
@@ -42,21 +43,16 @@ Chi tiết kiến trúc + sơ đồ: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md
 
 ## 3. Vòng đời MLOps (cốt lõi)
 
-```
-predict ─► ảnh (MinIO) + log (Kafka→Postgres) + drift ─► Giám sát
-   │  ảnh confidence thấp
-   ▼
-Review (bác sĩ gán nhãn)
-   │  (đủ ngưỡng S1 / hoặc bấm tay)
-   ▼
-Ingest: leak-guard → data/subset → DVC version mới (MinIO)
-   ▼
-Retrain (Prefect worker): warm-start + train đa kiến trúc → đánh giá trên val
-   ▼
-Promote Gate: re-eval Production trên val · sàn mel_recall · biên macro_f1
-   │  đạt
-   ▼
-Promote → model lên MinIO (bucket models) → Reload → Serve
+```mermaid
+flowchart TD
+    P["predict — ảnh→MinIO · log Kafka→Postgres · drift"] --> MON["Giám sát (Prometheus/Grafana)"]
+    P -->|"ảnh confidence thấp"| RV["Review — bác sĩ gán nhãn"]
+    RV -->|"đủ ngưỡng S1 / hoặc bấm tay"| IG["Ingest — leak-guard → data/subset → DVC version mới (MinIO)"]
+    IG --> RE["Retrain (Prefect worker) — warm-start + train đa kiến trúc → đánh giá trên val"]
+    RE --> GT{"Promote Gate — re-eval Production trên val · sàn mel_recall · biên macro_f1"}
+    GT -->|"đạt"| PM["Promote → model lên MinIO (bucket models) → Reload → Serve"]
+    GT -->|"không đạt"| KEEP["giữ Production cũ"]
+    PM --> P
 ```
 
 ---
@@ -104,13 +100,16 @@ docker compose up --build        # khởi động 12 service
 
 ## 5. API chính
 
-| Method | Endpoint | Mô tả |
-|---|---|---|
-| POST | `/predict` | Dự đoán + Grad-CAM (lưu ảnh MinIO, log Kafka→Postgres, tính drift) |
-| GET | `/predictions` · `/predictions/{id}` | Lịch sử dự đoán |
-| GET | `/reviews/queue` · POST `/reviews` | Hàng chờ review · gửi nhãn |
-| GET | `/monitoring/stats` · `/metrics` | Thống kê · metrics Prometheus |
-| `/admin/*` | (cần `X-Admin-Token`) | registry, retrain, gate, promote, ingest-reviews, reload-model, config, runs… |
+| Method | Endpoint | Mô tả | Bảo vệ |
+|---|---|---|---|
+| POST | `/auth/login` · GET `/auth/me` | Đăng nhập (trả JWT) · thông tin user | public · token |
+| POST | `/predict` | Dự đoán + Grad-CAM (lưu ảnh MinIO, log Kafka→Postgres, tính drift) | token |
+| GET | `/predictions` · `/predictions/{id}` | Lịch sử dự đoán | token |
+| GET | `/predictions/{id}/image` | Ảnh gốc (cho thẻ `<img>`) | public |
+| GET | `/reviews/queue` · POST `/reviews` | Hàng chờ review · gửi nhãn | token |
+| GET | `/monitoring/stats` | Thống kê | token |
+| GET | `/metrics` | Metrics Prometheus | public |
+| ALL | `/admin/*` | registry, retrain, gate, promote, ingest-reviews, reload-model, config, runs, **users** (CRUD tài khoản)… | role `admin` |
 
 ---
 
@@ -158,7 +157,7 @@ cd code/backend && pip install -r requirements-dev.txt && pytest
 ## 9. Giới hạn đã biết (trung thực)
 
 - Suy luận chạy **CPU** trong stack → model train trong hệ (chế độ smoke) chỉ để **demo vòng lặp**; model mạnh nên huấn luyện trên **Kaggle/GPU** rồi nạp vào.
-- Bảo mật **demo-grade** (mật khẩu mặc định, 1 admin token, chưa RBAC/TLS).
+- Bảo mật **demo-grade**: đã có JWT + RBAC + bcrypt, nhưng còn mật khẩu mặc định, chưa TLS/refresh-token/pentest.
 - HA: Postgres/MinIO/Kafka còn **single-node**.
 - "Drift" gồm heuristic chất lượng ảnh + PSI phân bố lớp (chưa drift trên embedding đầy đủ); tín hiệu S3 đo trên ảnh đã review nên thiên về ca khó.
 - CD (deploy tự động) chưa làm — đánh dấu hướng phát triển.

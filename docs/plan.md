@@ -1136,7 +1136,7 @@ Mặt phẳng điều khiển cho người vận hành — cho phép admin chỉ
 - Promote / rollback model thủ công (ghi đè gate khi cần).
 - Xem lịch sử retrain (lý do trigger, mode, có promote không, metrics).
 
-**Auth (nhẹ):** một `ADMIN_TOKEN` (biến môi trường), gửi qua header `X-Admin-Token`. KHÔNG làm RBAC đầy đủ — để hướng phát triển.
+**Auth (đã hiện thực):** xác thực **JWT** (`Bearer`, HS256) + mật khẩu băm **bcrypt** (bảng `users`), kèm **RBAC** 3 vai trò `admin` / `doctor` / `nurse` — `/admin/*` yêu cầu role `admin` (`require_admin`), các endpoint lâm sàng (`/predict`, `/reviews`, `/predictions`, `/monitoring/stats`) yêu cầu token. Admin tự **quản lý người dùng** qua `/admin/users` (list/tạo/đổi mật khẩu/xoá). Hai tài khoản seed: `admin/admin123`, `doctor/doctor123`. *(Bản đề xuất gốc dự kiến 1 `ADMIN_TOKEN` — đã nâng cấp lên JWT + RBAC.)* Còn lại cho production: refresh-token/rotation, khoá tài khoản, TLS — xem [SECURITY.md](SECURITY.md).
 
 **Lưu tham số trong DB** (sửa qua UI được), Prefect flow đọc khi retrain:
 
