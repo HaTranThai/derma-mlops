@@ -29,7 +29,10 @@ def client(monkeypatch):
     monkeypatch.setattr(prediction_repository, "get_prediction", lambda pid: {"prediction_id": pid})
     monkeypatch.setattr(monitoring_repository, "summary", lambda window: {**STATS, "window": window})
 
+    from app.api.deps import get_current_user
+
     app = FastAPI()
+    app.dependency_overrides[get_current_user] = lambda: {"username": "test", "role": "admin"}
     app.include_router(health.router)
     app.include_router(reviews.router)
     app.include_router(monitoring.router)

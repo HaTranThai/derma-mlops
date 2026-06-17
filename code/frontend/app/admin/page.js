@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react"
 
-import { apiFetch, ApiError } from "../../lib/api"
+import { apiFetch } from "../../lib/api"
+import { getUser } from "../../lib/auth"
 
 function StageBadge({ stage }) {
   const color =
@@ -120,8 +121,6 @@ function SectionHead({ title, desc, right }) {
 }
 
 export default function Admin() {
-  const [token, setToken] = useState("")
-  const [authed, setAuthed] = useState(false)
   const [models, setModels] = useState([])
   const [gate, setGate] = useState(null)
   const [runs, setRuns] = useState([])
@@ -129,60 +128,41 @@ export default function Admin() {
   const [config, setConfig] = useState(null)
   const [message, setMessage] = useState(null)
   const [error, setError] = useState(null)
+  const [user, setUser] = useState(null)
 
   useEffect(() => {
-    const saved = localStorage.getItem("adminToken")
-    if (saved) {
-      setToken(saved)
-      setAuthed(true)
-    }
+    setUser(getUser())
   }, [])
-
-  function headers() {
-    return { "X-Admin-Token": token, "Content-Type": "application/json" }
-  }
 
   async function loadAll() {
     setError(null)
     try {
       const [m, g, r, c, t] = await Promise.all([
-        apiFetch("/api/admin/models", { headers: headers() }),
-        apiFetch("/api/admin/gate", { headers: headers() }),
-        apiFetch("/api/admin/runs", { headers: headers() }),
-        apiFetch("/api/admin/config", { headers: headers() }),
-        apiFetch("/api/admin/trigger-status", { headers: headers() }),
+        apiFetch("/api/admin/models"),
+        apiFetch("/api/admin/gate"),
+        apiFetch("/api/admin/runs"),
+        apiFetch("/api/admin/config"),
+        apiFetch("/api/admin/trigger-status"),
       ])
       setModels(m.versions || [])
       setGate(g)
       setRuns(r.runs || [])
       setConfig(c)
       setTrigger(t)
-      setAuthed(true)
     } catch (e) {
-      if (e instanceof ApiError && e.status === 401) {
-        setError("Sai admin token")
-        setAuthed(false)
-      } else {
-        setError(e.message)
-      }
+      setError(e.message)
     }
   }
 
   useEffect(() => {
-    if (authed && token) loadAll()
-  }, [authed])
-
-  function saveToken() {
-    localStorage.setItem("adminToken", token)
-    setAuthed(true)
-    loadAll()
-  }
+    if (user?.role === "admin") loadAll()
+  }, [user])
 
   async function action(path, method = "POST") {
     setMessage(null)
     setError(null)
     try {
-      await apiFetch(`/api/admin/${path}`, { method, headers: headers() })
+      await apiFetch(`/api/admin/${path}`, { method })
       setMessage(`OK: ${path}`)
     } catch (e) {
       setError(e.message)
@@ -194,7 +174,7 @@ export default function Admin() {
     setError(null)
     setMessage("Đang đưa ảnh review vào tập train + DVC (có thể mất vài chục giây)...")
     try {
-      const data = await apiFetch("/api/admin/ingest-reviews", { method: "POST", headers: headers() })
+      const data = await apiFetch("/api/admin/ingest-reviews", { method: "POST" })
       if (data.note === "khong co review moi") {
         setMessage("Không có review mới để đưa vào tập train.")
       } else {
@@ -216,7 +196,6 @@ export default function Admin() {
     try {
       await apiFetch("/api/admin/config", {
         method: "PUT",
-        headers: headers(),
         body: JSON.stringify(config),
       })
       setMessage("Đã lưu config")
@@ -236,24 +215,16 @@ export default function Admin() {
     })
   }
 
-  if (!authed) {
+  if (user && user.role !== "admin") {
     return (
-      <main className="mx-auto max-w-md px-4 py-16">
-        <div className="glass-card p-7 animate-fade-up">
-          <span className="mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 text-white">
+      <main className="mx-auto max-w-md px-4 py-20">
+        <div className="glass-card p-8 text-center animate-fade-up">
+          <span className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-rose-50 text-rose-500">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-6 w-6"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>
           </span>
-          <h1 className="text-2xl font-extrabold text-slate-900">Admin <span className="gradient-text">Control Plane</span></h1>
-          <p className="mb-4 mt-1 text-sm text-slate-500">Nhập admin token để truy cập.</p>
-          <input
-            type="password"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="X-Admin-Token"
-            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-cyan-400 focus:ring-2 focus:ring-cyan-100"
-          />
-          <button onClick={saveToken} className="btn-grad mt-3 w-full py-2.5">Vào</button>
-          {error && <p className="mt-3 text-sm text-rose-600">{error}</p>}
+          <h1 className="text-xl font-extrabold text-slate-900">Cần quyền Admin</h1>
+          <p className="mt-2 text-sm text-slate-500">Tài khoản <b>{user.username}</b> ({user.role}) không có quyền truy cập trang quản trị.</p>
+          <a href="/" className="btn-soft mt-5 inline-flex text-sm">Về trang chính</a>
         </div>
       </main>
     )
@@ -261,17 +232,8 @@ export default function Admin() {
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-10">
-      <div className="mb-3 flex items-center justify-between animate-fade-up">
+      <div className="mb-3 animate-fade-up">
         <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">Admin <span className="gradient-text">Control Plane</span></h1>
-        <button
-          onClick={() => {
-            localStorage.removeItem("adminToken")
-            setAuthed(false)
-          }}
-          className="btn-soft text-sm"
-        >
-          Đăng xuất
-        </button>
       </div>
 
       {(() => {

@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
+from app.api.deps import require_admin
 from app.core.config import settings
 from app.repositories import config_repository, run_repository
 from app.services import auto_trigger, eval_service, ingest_service, mlflow_service, prefect_trigger, retrain_service
@@ -7,11 +8,6 @@ from app.services.gradcam_service import GradCAM
 from app.services.model_service import ModelService
 
 router = APIRouter(prefix="/admin")
-
-
-def require_admin(x_admin_token: str = Header(default="")):
-    if x_admin_token != settings.ADMIN_TOKEN:
-        raise HTTPException(status_code=401, detail="Sai admin token")
 
 
 @router.post("/seed-models", dependencies=[Depends(require_admin)])

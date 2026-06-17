@@ -26,6 +26,8 @@ class Settings:
     MLFLOW_EXPERIMENT = os.getenv("MLFLOW_EXPERIMENT", "skin_lesion")
 
     ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "admin-secret")
+    JWT_SECRET = os.getenv("JWT_SECRET", "dev-jwt-secret-doi-o-production")
+    JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "480"))
 
     PREFECT_API_URL = os.getenv("PREFECT_API_URL", "http://localhost:4200/api")
 

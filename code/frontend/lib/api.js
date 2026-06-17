@@ -1,3 +1,5 @@
+import { getToken, clearAuth } from "./auth"
+
 export class ApiError extends Error {
   constructor(message, status) {
     super(message)
@@ -16,12 +18,14 @@ function correlationId() {
 
 export async function apiFetch(url, options = {}) {
   const isJsonBody = typeof options.body === "string"
+  const token = getToken()
   let res
   try {
     res = await fetch(url, {
       ...options,
       headers: {
         "x-correlation-id": correlationId(),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(isJsonBody ? { "Content-Type": "application/json" } : {}),
         ...(options.headers || {}),
       },
@@ -35,6 +39,11 @@ export async function apiFetch(url, options = {}) {
     data = await res.json()
   } catch {
     data = null
+  }
+
+  if (res.status === 401 && typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+    clearAuth()
+    window.location.href = "/login"
   }
 
   if (!res.ok) {

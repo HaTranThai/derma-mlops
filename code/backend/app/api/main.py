@@ -3,12 +3,14 @@ import logging
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routers import admin, health, monitoring, predict, predictions, reviews
+from app.api.deps import get_current_user
+from app.api.routers import admin, auth, health, monitoring, predict, predictions, reviews
 from app.db.database import pool
 from app.db.init_db import init_db
+from app.repositories import user_repository
 from app.services import auto_trigger
 from app.services.gradcam_service import GradCAM
 from app.services.model_service import ModelService
@@ -28,6 +30,7 @@ async def lifespan(app: FastAPI):
     for attempt in range(1, 11):
         try:
             init_db()
+            user_repository.seed_users()
             app.state.storage = StorageService()
             logger.info("PostgreSQL + MinIO san sang.")
             break
@@ -69,8 +72,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(health.router)
-app.include_router(predict.router)
+app.include_router(auth.router)
+app.include_router(predict.router, dependencies=[Depends(get_current_user)])
 app.include_router(predictions.router)
-app.include_router(reviews.router)
+app.include_router(reviews.router, dependencies=[Depends(get_current_user)])
 app.include_router(monitoring.router)
 app.include_router(admin.router)

@@ -58,3 +58,11 @@ CREATE TABLE IF NOT EXISTS retraining_runs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_time ON retraining_runs (triggered_at DESC);
+
+CREATE TABLE IF NOT EXISTS users (
+    id            BIGSERIAL PRIMARY KEY,
+    username      VARCHAR(64) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    role          VARCHAR(16) NOT NULL DEFAULT 'doctor',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);

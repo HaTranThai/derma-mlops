@@ -79,8 +79,8 @@ docker compose up --build        # khởi động 12 service
 
 | Dịch vụ | URL | Ghi chú |
 |---|---|---|
-| Web (giao diện chính) | http://localhost:3100 | Dự đoán · Lịch sử · Cần review · Giám sát |
-| Trang Admin | http://localhost:3100/admin | token: `admin-secret` |
+| Web (giao diện chính) | http://localhost:3100 | Đăng nhập rồi vào Dự đoán · Lịch sử · Cần review · Giám sát |
+| Trang Admin | http://localhost:3100/admin | chỉ tài khoản role `admin` |
 | API docs (Swagger) | http://localhost:8200/docs | |
 | MLflow | http://localhost:5000 | registry + tracking |
 | Prefect | http://localhost:4200 | orchestration |
@@ -90,6 +90,15 @@ docker compose up --build        # khởi động 12 service
 | PostgreSQL | `localhost:5434` | `skin` / `skin_pass` / `skinlesion` |
 
 > Web gọi API qua proxy nội bộ (`/api/*` → `api:8000`); ảnh hiển thị qua proxy `/api/img/{id}` nên không cần mở cổng MinIO ra ngoài.
+
+**Đăng nhập (JWT + RBAC)**: web yêu cầu đăng nhập; API bảo vệ bằng `Bearer` token. Hai tài khoản seed sẵn:
+
+| Tài khoản | Mật khẩu | Role | Quyền |
+|---|---|---|---|
+| `admin` | `admin123` | `admin` | Toàn bộ, gồm trang Admin (control plane: promote, ingest, retrain) |
+| `doctor` | `doctor123` | `doctor` | Dự đoán · Lịch sử · Cần review · Giám sát (không vào Admin) |
+
+> Đổi mật khẩu/`JWT_SECRET` trước khi chạy thật. `/metrics` (Prometheus) và `/api/img/{id}` cố ý để public.
 
 ---
 

@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 
+from app.api.deps import get_current_user
 from app.api.schemas import PredictionList, PredictionRecord
 from app.repositories import prediction_repository
 
@@ -11,7 +12,7 @@ def image_path(prediction_id):
     return f"/api/img/{prediction_id}"
 
 
-@router.get("/predictions", response_model=PredictionList)
+@router.get("/predictions", response_model=PredictionList, dependencies=[Depends(get_current_user)])
 def list_predictions(
     request: Request,
     page: int = Query(1, ge=1),
@@ -24,7 +25,7 @@ def list_predictions(
     return PredictionList(items=items, total=total, page=page, limit=limit)
 
 
-@router.get("/predictions/{prediction_id}", response_model=PredictionRecord)
+@router.get("/predictions/{prediction_id}", response_model=PredictionRecord, dependencies=[Depends(get_current_user)])
 def get_prediction(prediction_id: str):
     row = prediction_repository.get_prediction(prediction_id)
     if row is None:

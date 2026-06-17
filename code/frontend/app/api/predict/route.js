@@ -11,7 +11,12 @@ export async function POST(req) {
     }
     const upstream = new FormData()
     upstream.append("file", file, file.name || "upload.jpg")
-    const res = await fetch(`${API_URL}/predict`, { method: "POST", body: upstream })
+    const auth = req.headers.get("authorization")
+    const res = await fetch(`${API_URL}/predict`, {
+      method: "POST",
+      body: upstream,
+      headers: auth ? { Authorization: auth } : {},
+    })
     const data = await res.json()
     return Response.json(data, { status: res.status })
   } catch (err) {
