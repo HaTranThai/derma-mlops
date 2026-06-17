@@ -1,13 +1,26 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from pydantic import BaseModel
 
 from app.api.deps import require_admin
 from app.core.config import settings
-from app.repositories import config_repository, run_repository
+from app.repositories import config_repository, run_repository, user_repository
 from app.services import auto_trigger, eval_service, ingest_service, mlflow_service, prefect_trigger, retrain_service
 from app.services.gradcam_service import GradCAM
 from app.services.model_service import ModelService
 
 router = APIRouter(prefix="/admin")
+
+ROLES = {"admin", "doctor", "nurse"}
+
+
+class CreateUserRequest(BaseModel):
+    username: str
+    password: str
+    role: str = "doctor"
+
+
+class PasswordRequest(BaseModel):
+    password: str
 
 
 @router.post("/seed-models", dependencies=[Depends(require_admin)])
@@ -84,6 +97,48 @@ def trigger_status():
 def list_runs():
     rows = run_repository.list_runs()
     return {"runs": [dict(row) for row in rows]}
+
+
+@router.get("/users", dependencies=[Depends(require_admin)])
+def list_users():
+    return {"users": user_repository.list_users()}
+
+
+@router.post("/users", status_code=201)
+def create_user(payload: CreateUserRequest, _admin=Depends(require_admin)):
+    username = payload.username.strip()
+    if not username or not payload.password:
+        raise HTTPException(status_code=400, detail="Thiếu tài khoản hoặc mật khẩu")
+    if len(payload.password) < 6:
+        raise HTTPException(status_code=400, detail="Mật khẩu tối thiểu 6 ký tự")
+    if payload.role not in ROLES:
+        raise HTTPException(status_code=400, detail=f"Role không hợp lệ (cho phép: {', '.join(sorted(ROLES))})")
+    if user_repository.get_user(username) is not None:
+        raise HTTPException(status_code=409, detail="Tài khoản đã tồn tại")
+    user_repository.create_user(username, payload.password, payload.role)
+    return {"username": username, "role": payload.role}
+
+
+@router.put("/users/{username}/password")
+def reset_password(username: str, payload: PasswordRequest, _admin=Depends(require_admin)):
+    if len(payload.password) < 6:
+        raise HTTPException(status_code=400, detail="Mật khẩu tối thiểu 6 ký tự")
+    if not user_repository.set_password(username, payload.password):
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản")
+    return {"status": "ok", "username": username}
+
+
+@router.delete("/users/{username}")
+def delete_user(username: str, admin=Depends(require_admin)):
+    target = user_repository.get_user(username)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản")
+    if username == admin["username"]:
+        raise HTTPException(status_code=400, detail="Không thể tự xoá tài khoản đang đăng nhập")
+    if target["role"] == "admin" and user_repository.count_admins() <= 1:
+        raise HTTPException(status_code=400, detail="Không thể xoá admin cuối cùng")
+    user_repository.delete_user(username)
+    return {"status": "ok", "deleted": username}
 
 
 @router.post("/reload-model", dependencies=[Depends(require_admin)])

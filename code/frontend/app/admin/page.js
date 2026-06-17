@@ -129,6 +129,8 @@ export default function Admin() {
   const [message, setMessage] = useState(null)
   const [error, setError] = useState(null)
   const [user, setUser] = useState(null)
+  const [users, setUsers] = useState([])
+  const [newUser, setNewUser] = useState({ username: "", password: "", role: "doctor" })
 
   useEffect(() => {
     setUser(getUser())
@@ -137,18 +139,20 @@ export default function Admin() {
   async function loadAll() {
     setError(null)
     try {
-      const [m, g, r, c, t] = await Promise.all([
+      const [m, g, r, c, t, u] = await Promise.all([
         apiFetch("/api/admin/models"),
         apiFetch("/api/admin/gate"),
         apiFetch("/api/admin/runs"),
         apiFetch("/api/admin/config"),
         apiFetch("/api/admin/trigger-status"),
+        apiFetch("/api/admin/users"),
       ])
       setModels(m.versions || [])
       setGate(g)
       setRuns(r.runs || [])
       setConfig(c)
       setTrigger(t)
+      setUsers(u.users || [])
     } catch (e) {
       setError(e.message)
     }
@@ -201,6 +205,49 @@ export default function Admin() {
       setMessage("Đã lưu config")
     } catch (e) {
       setError(e.message)
+    }
+  }
+
+  async function createUser(e) {
+    e.preventDefault()
+    setMessage(null)
+    setError(null)
+    try {
+      await apiFetch("/api/admin/users", { method: "POST", body: JSON.stringify(newUser) })
+      setMessage(`Đã tạo tài khoản ${newUser.username} (${newUser.role})`)
+      setNewUser({ username: "", password: "", role: "doctor" })
+      loadAll()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function resetPassword(username) {
+    const pw = window.prompt(`Mật khẩu mới cho "${username}" (≥ 6 ký tự):`)
+    if (!pw) return
+    setMessage(null)
+    setError(null)
+    try {
+      await apiFetch(`/api/admin/users/${encodeURIComponent(username)}/password`, {
+        method: "PUT",
+        body: JSON.stringify({ password: pw }),
+      })
+      setMessage(`Đã đặt lại mật khẩu cho ${username}`)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function deleteUser(username) {
+    if (!window.confirm(`Xoá tài khoản "${username}"?`)) return
+    setMessage(null)
+    setError(null)
+    try {
+      await apiFetch(`/api/admin/users/${encodeURIComponent(username)}`, { method: "DELETE" })
+      setMessage(`Đã xoá tài khoản ${username}`)
+      loadAll()
+    } catch (err) {
+      setError(err.message)
     }
   }
 
@@ -307,6 +354,100 @@ export default function Admin() {
                       Promote
                     </button>
                   )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+
+      <section className="glass-card mb-8 p-5">
+        <SectionHead
+          title="Quản lý người dùng"
+          desc={<>Tạo tài khoản cho bác sĩ / y tá, đặt lại mật khẩu, hoặc xoá. <b>admin</b> có toàn quyền (kể cả trang này); <b>doctor / nurse</b> chỉ dùng các trang lâm sàng (Dự đoán · Lịch sử · Cần review · Giám sát).</>}
+        />
+        <form onSubmit={createUser} className="mb-5 flex flex-wrap items-end gap-3">
+          <label className="block">
+            <span className="text-xs font-semibold text-slate-500">Tài khoản</span>
+            <input
+              value={newUser.username}
+              onChange={(e) => setNewUser((u) => ({ ...u, username: e.target.value }))}
+              className={`${FIELD} w-44`}
+              placeholder="vd: bs.an"
+              autoComplete="off"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs font-semibold text-slate-500">Mật khẩu</span>
+            <input
+              type="password"
+              value={newUser.password}
+              onChange={(e) => setNewUser((u) => ({ ...u, password: e.target.value }))}
+              className={`${FIELD} w-44`}
+              placeholder="≥ 6 ký tự"
+              autoComplete="new-password"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs font-semibold text-slate-500">Vai trò</span>
+            <select
+              value={newUser.role}
+              onChange={(e) => setNewUser((u) => ({ ...u, role: e.target.value }))}
+              className={`${FIELD} w-40`}
+            >
+              <option value="doctor">Bác sĩ (doctor)</option>
+              <option value="nurse">Y tá (nurse)</option>
+              <option value="admin">Quản trị (admin)</option>
+            </select>
+          </label>
+          <button type="submit" className="btn-grad px-4 py-2 text-sm">Thêm tài khoản</button>
+        </form>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-slate-400">
+              <th className="pb-2">Tài khoản</th>
+              <th>Vai trò</th>
+              <th>Tạo lúc</th>
+              <th className="text-right">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody>
+            {users.map((u) => (
+              <tr key={u.username} className="border-t border-slate-100">
+                <td className="py-2 font-medium">
+                  {u.username}
+                  {u.username === user?.username && <span className="ml-2 text-xs text-slate-400">(bạn)</span>}
+                </td>
+                <td>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-xs ${
+                      u.role === "admin"
+                        ? "bg-indigo-100 text-indigo-700"
+                        : u.role === "nurse"
+                          ? "bg-teal-100 text-teal-700"
+                          : "bg-slate-100 text-slate-600"
+                    }`}
+                  >
+                    {u.role}
+                  </span>
+                </td>
+                <td className="whitespace-nowrap text-xs text-slate-500">
+                  {u.created_at ? new Date(u.created_at).toLocaleString() : "—"}
+                </td>
+                <td className="text-right">
+                  <button
+                    onClick={() => resetPassword(u.username)}
+                    className="mr-2 rounded border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100"
+                  >
+                    Đổi mật khẩu
+                  </button>
+                  <button
+                    onClick={() => deleteUser(u.username)}
+                    disabled={u.username === user?.username}
+                    className="rounded border border-rose-200 px-2 py-1 text-xs text-rose-600 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Xoá
+                  </button>
                 </td>
               </tr>
             ))}

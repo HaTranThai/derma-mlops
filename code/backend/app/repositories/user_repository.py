@@ -28,6 +28,34 @@ def create_user(username, password, role):
         )
 
 
+def list_users():
+    with pool.connection() as conn:
+        rows = conn.execute(
+            "SELECT username, role, created_at FROM users ORDER BY created_at"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def count_admins():
+    with pool.connection() as conn:
+        return conn.execute("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'").fetchone()["n"]
+
+
+def set_password(username, password):
+    with pool.connection() as conn:
+        cur = conn.execute(
+            "UPDATE users SET password_hash = %s WHERE username = %s",
+            (auth_service.hash_password(password), username),
+        )
+        return cur.rowcount > 0
+
+
+def delete_user(username):
+    with pool.connection() as conn:
+        cur = conn.execute("DELETE FROM users WHERE username = %s", (username,))
+        return cur.rowcount > 0
+
+
 def seed_users():
     for u in DEFAULT_USERS:
         if get_user(u["username"]) is None:

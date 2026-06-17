@@ -38,3 +38,7 @@ export async function POST(req, { params }) {
 export async function PUT(req, { params }) {
   return proxy(req, params, "PUT")
 }
+
+export async function DELETE(req, { params }) {
+  return proxy(req, params, "DELETE")
+}
